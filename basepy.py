@@ -116,6 +116,8 @@ LT          = "LT"
 GT          = "GT"
 LTE         = "LTE"
 GTE         = "GTE"
+INC         = "INC"
+DEC         = "DEC"
 EOF         = "EOF"
 KEYWORDS    = {
     "var_def": "let",
@@ -133,7 +135,7 @@ class Token:
             self.pos_end.next()
         if pos_end:
             self.pos_end = pos_end.copy()
-    def matches(self, type_, value):
+    def matches(self, type_, value=None):
         return self.type == type_ and self.value == value
     def __repr__(self):
         if self.value: return f"[{self.type}:{self.value}]"
@@ -169,16 +171,25 @@ class Lexer:
                 tokens.append(self.make_gt())
                 self.next()
             elif self.char == "+": # plus
-                tokens.append(Token(PLUS, pos_start=self.pos.copy()))
+                pos_start = self.pos.copy()
+                tokens.append(Token(PLUS, pos_start=pos_start))
                 self.next()
+                if self.char == "+": # inc
+                    tokens[-1] = Token(INC, pos_start=pos_start, pos_end=self.pos.copy())
+                    self.next()
             elif self.char == "-": # minus
+                pos_start = self.pos.copy()
                 tokens.append(Token(MINUS, pos_start=self.pos.copy()))
                 self.next()
+                if self.char == "-": # dec
+                    tokens[-1] = Token(DEC, pos_start=pos_start, pos_end=self.pos.copy())
+                    self.next()
             elif self.char == "*": # multiply
-                tokens.append(Token(MUL, pos_start=self.pos.copy()))
+                pos_start = self.pos.copy()
+                tokens.append(Token(MUL, pos_start=pos_start))
                 self.next()
                 if self.char == "*": # power
-                    tokens[-1] = Token(POW, pos_start=self.pos.copy())
+                    tokens[-1] = Token(POW, pos_start=pos_start, pos_end=self.pos.copy())
                     self.next()
             elif self.char == "/": # divide
                 tokens.append(Token(DIV, pos_start=self.pos.copy()))
@@ -293,6 +304,11 @@ class UnaryOpNode:
         self.pos_end = node.pos_end.copy()
     def __repr__(self):
         return f"(u{self.op_tok} {self.node})"
+class VarIncrementationNode:
+    def __init__(self, var_name_tok):
+        self.var_name_tok = var_name_tok
+        self.pos_start = self.var_name_tok.pos_start
+        self.pos_end = self.var_name_tok.pos_end
 
 """PARSE RESULT"""
 class ParseResult:
@@ -361,10 +377,8 @@ class Parser:
             tok.pos_start, tok.pos_end,
             "expected int, float, identifier, '+', '-', '('"
         ))
-
     def power(self):
         return self.bin_op(self.atom, [POW], self.factor)
-
     def factor(self):
         res = ParseResult()
         tok = self.tok
@@ -398,6 +412,18 @@ class Parser:
             expr = res.register(self.expr())
             if res.error: return res
             return res.success(VarAssignNode(var_name, expr))
+        if self.tok.matches(INC):
+            res.register_next()
+            self.next()
+            if self.tok.type != IDENTIFIER: return res.failure(InvalidSyntaxError(
+                self.tok.pos_start, self.tok.pos_end,
+                "expected identifier"
+            ))
+            var_name = self.tok
+            res.register_next()
+            self.next()
+            if res.error: return res
+            return res.success(VarIncrementationNode(var_name))
         node = res.register(self.bin_op(self.term, [PLUS, MINUS]))
         if res.error:
             return res.failure(InvalidSyntaxError(
@@ -532,6 +558,7 @@ class Interpreter:
         if res.error: return res
         right = res.register(self.visit(node.right_node, context))
         if res.error: return res
+        error = None
         if node.op_tok.type == PLUS: # add
             result, error = left.add(right)
         if node.op_tok.type == MINUS: # sub
@@ -548,13 +575,21 @@ class Interpreter:
         res = RTResult()
         number = res.register(self.visit(node.node, context))
         if res.error: return res
+        error = None
         if node.op_tok.type == MINUS:
             number, error = number.neg()
         if error: return res.failure(error)
         return res.success(number.set_pos(node.pos_start, node.pos_end))
+    def visit_VarIncrementationNode(self, node, context):
+        res = RTResult()
+        var_name = node.var_name_tok.value
+        if res.error: return res
+        context.vars.set(var_name, Number(context.vars.get(var_name).value + 1))
+        return res.success(context.vars.get(var_name))
 
 """RUN"""
 global_vars = Vars()
+global_vars.set("ans", Number(0))
 global_vars.set("null", Number(0))
 global_vars.set("true", Number(1))
 global_vars.set("false", Number(0))
@@ -571,6 +606,7 @@ def run(fn: str, text: str):
     context = Context("<program>")
     context.vars = global_vars
     result = interperter.visit(ast.node, context)
+    global_vars.vars["ans"] = result.value
 
     return result.value, result.error
 
