@@ -2,7 +2,8 @@
 from string import ascii_letters as LETTERS
 from string import digits as DIGITS
 from sys import argv
-from time import sleep
+from time import sleep, time
+from math import pi, tau, floor, ceil, fabs
 
 LETTERS += "_"
 VAR_CHARS = LETTERS + DIGITS
@@ -110,6 +111,8 @@ MINUS       = "MINUS"
 MUL         = "MUL"
 DIV         = "DIV"
 POW         = "POW"
+INDEX       = "INDEX"
+MOD         = "MOD"
 EQ          = "EQ"
 EVALIN      = "EVALIN"
 EVALOUT     = "EVALOUT"
@@ -121,6 +124,7 @@ LT          = "LT"
 GT          = "GT"
 LTE         = "LTE"
 GTE         = "GTE"
+IN          = "IN"
 INC         = "INC"
 DEC         = "DEC"
 SEP         = "SEP"
@@ -132,6 +136,7 @@ KEYWORDS    = {
     "bool_and": "and",
     "bool_or":  "or",
     "bool_not": "not",
+    "in":       "in",
     "if":       "if",
     "then":     "then",
     "elif":     "elif",
@@ -146,8 +151,8 @@ KEYWORDS    = {
     "next":     "next",
     "return":   "return",
 }
-INVALIDSYNTAX_START = f"int, float, string, identifier, '+', '-', '(', '[', '{KEYWORDS['var_def']}', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
-INVALIDSYNTAX_ALL = f"int, float, string, identifier, '+', '-', '*', '/', '**' '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}, '{KEYWORDS['bool_not']}'"
+INVALIDSYNTAX_START = f"number, string, identifier, '+', '-', '(', '[', '{KEYWORDS['var_def']}', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
+INVALIDSYNTAX_ALL = f"number, string, identifier, '+', '-', '*', '/', '**' '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}, '{KEYWORDS['bool_not']}'"
 class Token:
     def __init__(self, type_: str, value=None, pos_start=None, pos_end=None):
         self.type = type_
@@ -180,20 +185,26 @@ class Lexer:
         while self.char is not None:
             if self.char in " \t": # space
                 self.next()
-            elif self.char in "'": # coment
+            elif self.char in "'": # comment
                 self.next()
                 while not self.char in "'":
                     self.next()
                 self.next()
-            elif self.char in ";\n":
+            elif self.char in ";\n": # new line
                 tokens.append(Token(NL, pos_start=self.pos.copy()))
                 self.next()
             elif self.char in DIGITS: # numbers
                 tokens.append(self.make_num())
             elif self.char in LETTERS: # variable or keyword
                 tokens.append(self.make_id())
-            elif self.char == '"':
+            elif self.char == '"': # string
                 tokens.append(self.make_str())
+            elif self.char == "#": # index
+                tokens.append(Token(INDEX, pos_start=self.pos.copy()))
+                self.next()
+            elif self.char == "%": # mod
+                tokens.append(Token(MOD, pos_start=self.pos.copy()))
+                self.next()
             elif self.char == "=": # equal
                 tokens.append(self.make_equals())
                 self.next()
@@ -280,6 +291,7 @@ class Lexer:
             id_str += self.char
             self.next()
         tok_type = KEYWORD if id_str in KEYWORDS.values() else IDENTIFIER
+        tok_type = IN if id_str == KEYWORDS["in"] else tok_type
         return Token(tok_type, id_str, pos_start, self.pos.copy())
     def make_ne(self):
         pos_start = self.pos.copy()
@@ -341,14 +353,14 @@ class NumberNode:
         self.pos_start  = tok.pos_start.copy()
         self.pos_end    = tok.pos_end.copy()
     def __repr__(self):
-        return f"{self.tok}"
+        return f"(node {self.tok})"
 class StringNode:
     def __init__(self, tok):
         self.tok        = tok
         self.pos_start  = tok.pos_start.copy()
         self.pos_end    = tok.pos_end.copy()
     def __repr__(self):
-        return f"{self.tok}"
+        return f"(node {self.tok})"
 class ListNode:
     def __init__(self, element_nodes, pos_start, pos_end):
         self.element_nodes = element_nodes
@@ -360,6 +372,8 @@ class VarAccessNode:
         self.var_name_tok   = var_name_tok
         self.pos_start      = self.var_name_tok.pos_start
         self.pos_end        = self.var_name_tok.pos_end
+    def __repr__(self):
+        return f"(varAccessNode {self.var_name_tok})"
 class VarAssignNode:
     def __init__(self, var_name_tok, value_node):
         self.var_name_tok   = var_name_tok
@@ -394,7 +408,10 @@ class IfNode:
         self.else_case  = else_case
         self.return_null = return_null
         self.pos_start  = self.cases[0][0].pos_start
-        self.pos_end    = self.else_case or self.cases[-1][0].pos_end
+        self.pos_end    = (self.else_case or self.cases[len(self.cases) - 1])[0].pos_end
+    def __repr__(self):
+        nl = "\n\t"
+        return f"(ifNode cases({nl.join(str(x) for x in self.cases)}) else({self.else_case}) return_null({self.return_null}) ({self.pos_start}-{self.pos_end}))"
 class ForNode:
     def __init__(self, var_name_tok, start_value_node, end_value_node, step_value_node, body_node, return_null=False):
         self.body_node          = body_node
@@ -591,13 +608,25 @@ class Parser:
         self.next()
         condition = res.register(self.expr())
         if res.error: return res
-        if not self.tok.matches(KEYWORD, KEYWORDS['do']):
-            return res.failure(InvalidSyntaxError(
-                self.tok.pos_start, self.tok.pos_end,
-                f"expected '{KEYWORDS['do']}'"
-            ))
-        res.register_next()
-        self.next()
+        if self.tok.matches(KEYWORD, KEYWORDS['do']):
+            res.register_next()
+            self.next()
+            if self.tok.type == NL:
+                res.register_next()
+                self.next()
+                body = res.register(self.statements())
+                if res.error: return res
+                if not self.tok.matches(KEYWORD, KEYWORDS["end"]):
+                    return res.failure(InvalidSyntaxError(
+                        self.tok.pos_start, self.tok.pos_end,
+                        f"expected '{KEYWORDS['end']}'"
+                    ))
+                res.register_next()
+                self.next()
+                return res.success(WhileNode(condition, body, True))
+            body = res.register(self.statement())
+            if res.error: return res
+            return res.success(WhileNode(condition, body))
         if self.tok.type == NL:
             res.register_next()
             self.next()
@@ -611,9 +640,10 @@ class Parser:
             res.register_next()
             self.next()
             return res.success(WhileNode(condition, body, True))
-        body = res.register(self.statement())
-        if res.error: return res
-        return res.success(WhileNode(condition, body))
+        return res.failure(InvalidSyntaxError(
+            self.tok.pos_start, self.tok.pos_end,
+            f"expected '{KEYWORDS['do']}' or new line"
+        ))
     def for_expr(self):
         res = ParseResult()
         if not self.tok.matches(KEYWORD, KEYWORDS["for"]):
@@ -656,13 +686,12 @@ class Parser:
             if res.error: return res
         else:
             step_value = None
-        if not self.tok.matches(KEYWORD, KEYWORDS["do"]):
-            return res.failure(InvalidSyntaxError(
-                self.tok.pos_start, self.tok.pos_end,
-                f"expected '{KEYWORDS['do']}'"
-            ))
-        res.register_next()
-        self.next()
+        if self.tok.matches(KEYWORD, KEYWORDS["do"]):
+            res.register_next()
+            self.next()
+            body = res.register(self.statement())
+            if res.error: return res
+            return res.success(ForNode(var_name, start_value, end_value, step_value, body))
         if self.tok.type == NL:
             res.register_next()
             self.next()
@@ -676,9 +705,10 @@ class Parser:
             res.register_next()
             self.next()
             return res.success(ForNode(var_name, start_value, end_value, step_value, body, True))
-        body = res.register(self.statement())
-        if res.error: return res
-        return res.success(ForNode(var_name, start_value, end_value, step_value, body))
+        return res.failure(InvalidSyntaxError(
+            self.tok.pos_start, self.tok.pos_end,
+            f"expected '{KEYWORDS['do']}' or new line"
+        ))
     def if_expr(self):
         res = ParseResult()
         all_cases = res.register(self.if_expr_cases(KEYWORDS["if"]))
@@ -874,8 +904,10 @@ class Parser:
                 self.next()
             return res.success(CallNode(atom, arg_nodes))
         return res.success(atom)
+    def index(self):
+        return self.bin_op(self.call, [INDEX], self.power)
     def power(self):
-        return self.bin_op(self.call, [POW], self.factor)
+        return self.bin_op(self.index, [POW, MOD], self.factor)
     def factor(self):
         res = ParseResult()
         tok = self.tok
@@ -899,7 +931,7 @@ class Parser:
             node = res.register(self.comp_expr())
             if res.error: return res
             return res.success(UnaryOpNode(op_tok, node))
-        node = res.register(self.bin_op(self.arith_expr, [EE, NE, LT, GT, LTE, GTE]))
+        node = res.register(self.bin_op(self.arith_expr, [EE, NE, LT, GT, LTE, GTE, IN]))
         if res.error: return res.failure(InvalidSyntaxError(
             self.tok.pos_start, self.tok.pos_end,
             f"expected {INVALIDSYNTAX_ALL}"
@@ -994,7 +1026,6 @@ class Parser:
                 continue
             statements.append(statement)
         return res.success(ListNode(statements, pos_start, self.tok.pos_end.copy()))
-
     def bin_op(self, func1, ops: list, func2=None):
         if func2 is None:
             func2 = func1
@@ -1083,6 +1114,8 @@ class Value:
         return None, self.illagel_operation(other)
     def _or(self, other):
         return None, self.illagel_operation(other)
+    def _in(self, other):
+        return None, self.illagel_operation(other)
     def ee(self, other):
         return None, self.illagel_operation(other)
     def ne(self, other):
@@ -1160,6 +1193,13 @@ class Number(Value):
             return Number(self.value ** other.value).set_context(self.context), None
         else:
             return None, self.illagel_operation(other)
+    def mod(self, other):
+        other, error = other.as_number()
+        if error: return None, error
+        if isinstance(other, Number):
+            return Number(self.value % other.value).set_context(self.context), None
+        else:
+            return None, self.illagel_operation(other)
     def neg(self):
         return Number(-self.value).set_context(self.context), None
     def _not(self):
@@ -1178,6 +1218,16 @@ class Number(Value):
             return Number(int(bool(self.value) or bool(other.value))).set_context(self.context), None
         else:
             return None, self.illagel_operation(other)
+    def _in(self, other):
+        values = []
+        for val in other.elements:
+            if isinstance(val, List): values.append(val.elements)
+            elif isinstance(val, String): values.append(val.value)
+            elif isinstance(val, Number): values.append(val.value)
+            else: return None, self.illagel_operation(other)
+        if isinstance(other, List):
+            return Number(int(self.value in values)).set_context(self.context), None
+        return None, self.illagel_operation(other)
     def ee(self, other):
         other, error = other.as_number()
         if error: return None, error
@@ -1226,9 +1276,6 @@ class Number(Value):
         return self.value != 0
     def __repr__(self):
         return f"{self.value}"
-Number.null = Number(0)
-Number.true = Number(1)
-Number.false = Number(0)
 class String(Value):
     def __init__(self, value):
         super().__init__()
@@ -1254,7 +1301,7 @@ class String(Value):
             return String(self.value * other.value).set_context(self.context), None
         else:
             return None, self.illagel_operation(other)
-    def div(self, other):
+    def index(self, other):
         if isinstance(other, Number):
             try:
                 return String(self.value[other.value]), None
@@ -1265,6 +1312,18 @@ class String(Value):
                 )
         else:
             return None, self.illagel_operation(other)
+    def _in(self, other):
+        if isinstance(other, List):
+            values = []
+            for val in other.elements:
+                if isinstance(val, List): values.append(val.elements)
+                elif isinstance(val, String): values.append(val.value)
+                elif isinstance(val, Number): values.append(val.value)
+                else: return None, self.illagel_operation(other)
+            return Number(int(self.value in values)).set_context(self.context), None
+        if isinstance(other, String):
+            return Number(int(self.value in other.value)).set_context(self.context), None
+        return None, self.illagel_operation(other)
     def ee(self, other):
         if isinstance(other, String):
             return Number(int(self.value == other.value)).set_context(self.context), None
@@ -1277,7 +1336,6 @@ class String(Value):
             return None, self.illagel_operation(other)
     def __repr__(self):
         return f'"{self.value}"'
-String.empty = String("")
 class List(Value):
     def __init__(self, elements):
         super().__init__()
@@ -1311,7 +1369,7 @@ class List(Value):
             return new_list, None
         else:
             return None, self.illagel_operation(other)
-    def div(self, other):
+    def index(self, other):
         if isinstance(other, Number):
             try:
                 return self.elements[other.value], None
@@ -1322,13 +1380,27 @@ class List(Value):
                 )
         else:
             return None, self.illagel_operation(other)
+    def _in(self, other):
+        values = []
+        for val in other.elements:
+            if isinstance(val, List): values.append(val.elements)
+            elif isinstance(val, String): values.append(val.value)
+            elif isinstance(val, Number): values.append(val.value)
+            else: return None, self.illagel_operation(other)
+        if isinstance(other, List):
+            return Number(int(self.elements in values)).set_context(self.context), None
+        return None, self.illagel_operation(other)
     def __repr__(self):
         return f"[{', '.join([str(x) for x in self.elements])}]"
-List.empty = List([])
 class BaseFunction(Value):
     def __init__(self, name):
         super().__init__()
         self.name = name or "<anonymous>"
+    def copy(self):
+        copy = BuiltInFunction(self.name)
+        copy.set_context(self.context)
+        copy.set_pos(self.pos_start, self.pos_end)
+        return copy
     def generate_new_context(self):
         new_context = Context(self.name, self.context, self.pos_start)
         new_context.vars = Vars(new_context.parent.vars)
@@ -1479,7 +1551,43 @@ class BuiltInFunction(BaseFunction):
         sleep(n.value)
         return RTResult().success(BuiltInFunction.sleep)
     execute_sleep.arg_names = ["sleep_value"]
-BuiltInFunction.print        = BuiltInFunction("print")
+    def execute_time(self, exec_ctx):
+        return RTResult().success(Number(time()))
+    execute_time.arg_names = []
+    def execute_floor(self, exec_ctx):
+        value = exec_ctx.vars.get("math_value")
+        if isinstance(value, Number):
+            return RTResult().success(Number(floor(value.value)))
+        return RTResult().failure(RTError(
+            self.pos_start, self.pos_end,
+            "argument has to be a number", exec_ctx
+        ))
+    execute_floor.arg_names = ["math_value"]
+    def execute_ceil(self, exec_ctx):
+        value = exec_ctx.vars.get("math_value")
+        if isinstance(value, Number):
+            return RTResult().success(Number(ceil(value.value)))
+        return RTResult().failure(RTError(
+            self.pos_start, self.pos_end,
+            "argument has to be a number", exec_ctx
+        ))
+    execute_ceil.arg_names = ["math_value"]
+    def execute_abs(self, exec_ctx):
+        value = exec_ctx.vars.get("math_value")
+        if isinstance(value, Number):
+            return RTResult().success(Number(fabs(value.value)))
+        return RTResult().failure(RTError(
+            self.pos_start, self.pos_end,
+            "argument has to be a number", exec_ctx
+        ))
+    execute_abs.arg_names = ["math_value"]
+Number.null                 = Number(0)
+Number.true                 = Number(1)
+Number.false                = Number(0)
+Number.pi                   = Number(pi)
+String.empty                = String("")
+List.empty                  = List([])
+BuiltInFunction.print       = BuiltInFunction("print")
 BuiltInFunction.input       = BuiltInFunction("input")
 BuiltInFunction.input_num   = BuiltInFunction("input_num")
 BuiltInFunction.is_num      = BuiltInFunction("is_num")
@@ -1489,6 +1597,7 @@ BuiltInFunction.is_func     = BuiltInFunction("is_func")
 BuiltInFunction.len         = BuiltInFunction("len")
 BuiltInFunction.run         = BuiltInFunction("run")
 BuiltInFunction.sleep       = BuiltInFunction("sleep")
+BuiltInFunction.time        = BuiltInFunction("time")
 
 """CONTEXT"""
 class Context:
@@ -1571,6 +1680,12 @@ class Interpreter:
             result, error = left.lte(right)
         if node.op_tok.type == GTE: # gte
             result, error = left.gte(right)
+        if node.op_tok.type == IN: # gte
+            result, error = left._in(right)
+        if node.op_tok.type == INDEX: # gte
+            result, error = left.index(right)
+        if node.op_tok.type == MOD: # gte
+            result, error = left.mod(right)
         if node.op_tok.matches(KEYWORD, KEYWORDS["bool_and"]): # and
             result, error = left._and(right)
         if node.op_tok.matches(KEYWORD, KEYWORDS["bool_or"]): # or
@@ -1697,6 +1812,7 @@ global_vars = Vars()
 global_vars.set("null", Number.null)
 global_vars.set("true", Number.true)
 global_vars.set("false", Number.false)
+global_vars.set("pi", Number.pi)
 global_vars.set("print", BuiltInFunction.print)
 global_vars.set("input", BuiltInFunction.input)
 global_vars.set("inputNum", BuiltInFunction.input_num)
@@ -1707,6 +1823,7 @@ global_vars.set("isFunc", BuiltInFunction.is_func)
 global_vars.set("len", BuiltInFunction.len)
 global_vars.set("run", BuiltInFunction.run)
 global_vars.set("sleep", BuiltInFunction.sleep)
+global_vars.set("time", BuiltInFunction.time)
 def run(fn: str, text: str):
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
@@ -1720,7 +1837,6 @@ def run(fn: str, text: str):
     result = interperter.visit(ast.node, context)
 
     return result.value, result.error
-
 if len(argv) > 1:
     fn = argv[1]
     try:
