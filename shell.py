@@ -4,7 +4,12 @@ argv = [argv[0]]
 while True:
     line = input("by > ")
     if len(line) == 0: continue
-    res, error = basepy.run("<stdin>", line)
+    try:
+        res, error = basepy.run("<stdin>", line)
+    except Exception as e:
+        # raise e
+        print(f"python error: {e}")
+        continue
     if error:
         print(error.as_string())
         continue
