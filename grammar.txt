@@ -1,4 +1,11 @@
-expr            KEYWORD:VAR IDENTIFIER EQ expr
+statements       (NL)* statement (NL+ statement)* (NL)*
+
+statement       expr
+                return expr?
+                next
+                break
+
+expr            var IDENTIFIER EQ expr
                 comp-expr ((and|or|nand|xor) comp-expr)*
 
 comp-expr       not comp-expr
@@ -11,7 +18,36 @@ term            factor ((MUL|DIV) factor)*
 factor          (PLUS|MINUS) factor
                 power
 
-power           atom (POW factor)*
+power           call (POW factor)*
 
-atom            INT|FLOAT|INDENTIFIER
+call            atom (EVALIN (expr (SEP expr)*)? EVALOUT)?
+
+atom            INT|FLOAT|NULL|STRING|INDENTIFIER
                 EVALIN expr EVALOUT
+                list-expr
+                if-expr
+                for-expr
+                while-expr
+                func-expr
+
+list-expr       LISTIN (expr (SEP expr)*)? LISTOUT
+
+if-expr         if expr then
+                (statement elif-expr|else-expr?) | (NL statements end|elif-expr|else-expr)
+elif-expr       elif expr then
+                (statement elif-expr|else-expr?) | (NL statements end|elif-expr|else-expr)
+
+else-expr       else
+                statement | (NL statements end)
+
+for-expr        for INDENTIFIER EQ expr to expr
+                (step expr)? do
+                statement | (NL statements end)
+
+while-expr      while expr do
+                statement | (NL statements end)
+
+func-def        func INDENTIFIER?
+                EVALIN (IDENTIFIER (SEP INDENTIFIER)*)? EVALOUT
+                REP
+                expr | (NL statements end)
