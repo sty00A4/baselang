@@ -1,2 +1,2 @@
 # basepy
-a programming language based on the TI-BASIC language for the TI calculators implemented in python
+a programming language taking inspiration from the **TI-BASIC** programming language and **Lua**
