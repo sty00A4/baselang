@@ -7,7 +7,6 @@ while True:
     try:
         res, error = basepy.run("<stdin>", line)
     except Exception as e:
-        # raise e
         print(f"python error: {e}")
         continue
     if error:

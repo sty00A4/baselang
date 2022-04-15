@@ -3,7 +3,7 @@ from string import ascii_letters as LETTERS
 from string import digits as DIGITS
 from sys import argv
 from time import sleep, time
-from math import pi, tau, floor, ceil, fabs
+from math import pi, floor, ceil, fabs
 
 LETTERS += "_"
 VAR_CHARS = LETTERS + DIGITS
@@ -1129,7 +1129,7 @@ class Value:
     def gte(self, other):
         return None, self.illagel_operation(other)
     def as_number(self):
-        return None, self.illagel_cast("number")
+        return Number(1), None
     def as_string(self):
         return None, self.illagel_cast("string")
     def is_true(self):
@@ -1145,6 +1145,8 @@ class Value:
             self.pos_start, self.pos_end,
             "illegal operation", self.context
         )
+    def call(self, args):
+        return None, self.illagel_operation()
     def __repr__(self):
         return "?"
 class Number(Value):
@@ -1581,6 +1583,20 @@ class BuiltInFunction(BaseFunction):
             "argument has to be a number", exec_ctx
         ))
     execute_abs.arg_names = ["math_value"]
+    def execute_exit(self, exec_ctx):
+        value = exec_ctx.vars.get("exit_value")
+        if isinstance(value, Number) or isinstance(value, String):
+            exit(value.value)
+    execute_exit.arg_names = ["exit_value"]
+    def execute_error(self, exec_ctx):
+        value = exec_ctx.vars.get("error_value")
+        if isinstance(value, String):
+            exit("Error: " + value.value)
+        return RTResult().failure(RTError(
+            self.pos_start, self.pos_end,
+            "argument has to be a string", exec_ctx
+        ))
+    execute_error.arg_names = ["error_value"]
 Number.null                 = Number(0)
 Number.true                 = Number(1)
 Number.false                = Number(0)
@@ -1598,6 +1614,11 @@ BuiltInFunction.len         = BuiltInFunction("len")
 BuiltInFunction.run         = BuiltInFunction("run")
 BuiltInFunction.sleep       = BuiltInFunction("sleep")
 BuiltInFunction.time        = BuiltInFunction("time")
+BuiltInFunction.floor       = BuiltInFunction("floor")
+BuiltInFunction.ceil        = BuiltInFunction("ceil")
+BuiltInFunction.abs         = BuiltInFunction("abs")
+BuiltInFunction.exit        = BuiltInFunction("exit")
+BuiltInFunction.error       = BuiltInFunction("error")
 
 """CONTEXT"""
 class Context:
@@ -1771,11 +1792,14 @@ class Interpreter:
         func_value = Function(func_name, body_node, arg_names, node.auto_return).set_context(context).set_pos(node.pos_start, node.pos_end)
         if node.var_name_tok:
             context.vars.set(func_name, func_value)
-        return res.success(Number.null if node.auto_return else func_value)
+        return res.success(func_value)
     def visit_CallNode(self, node: CallNode, context: Context):
         res = RTResult()
         args = []
         value_to_call = res.register(self.visit(node.node_to_call, context))
+        if not isinstance(value_to_call, (Function, BuiltInFunction)): return res.failure(RTError(
+            node.pos_start, node.pos_end, f"cannot call a non-function value", context
+        ))
         if res.should_return(): return res
         value_to_call = value_to_call.copy().set_pos(node.pos_start, node.pos_end)
         for arg_node in node.arg_nodes:
@@ -1824,6 +1848,11 @@ global_vars.set("len", BuiltInFunction.len)
 global_vars.set("run", BuiltInFunction.run)
 global_vars.set("sleep", BuiltInFunction.sleep)
 global_vars.set("time", BuiltInFunction.time)
+global_vars.set("floor", BuiltInFunction.floor)
+global_vars.set("ceil", BuiltInFunction.ceil)
+global_vars.set("abs", BuiltInFunction.abs)
+global_vars.set("exit", BuiltInFunction.exit)
+global_vars.set("error", BuiltInFunction.error)
 def run(fn: str, text: str):
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
