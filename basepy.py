@@ -399,11 +399,12 @@ class VarAccessNode:
     def __repr__(self):
         return f"(varAccessNode {self.var_name_tok})"
 class VarAssignNode:
-    def __init__(self, var_name_tok, value_node):
-        self.var_name_tok   = var_name_tok
-        self.value_node     = value_node
-        self.pos_start      = self.var_name_tok.pos_start
-        self.pos_end        = self.value_node.pos_end
+    def __init__(self, var_name_tok, value_node=None):
+        self.var_name_tok           = var_name_tok
+        self.value_node             = value_node
+        self.pos_start              = self.var_name_tok.pos_start
+        if value_node: self.pos_end = self.value_node.pos_end
+        else: self.pos_end          = self.var_name_tok.pos_end
 class BinOpNode:
     def __init__(self, left_node, op_tok, right_node):
         self.left_node  = left_node
@@ -981,15 +982,13 @@ class Parser:
             var_name = self.tok
             res.register_next()
             self.next()
-            if self.tok.type != EQ: return res.failure(InvalidSyntaxError(
-                self.tok.pos_start, self.tok.pos_end,
-                "expected '='"
-            ))
-            res.register_next()
-            self.next()
-            expr = res.register(self.expr())
-            if res.error: return res
-            return res.success(VarAssignNode(var_name, expr))
+            if self.tok.type == EQ:
+                res.register_next()
+                self.next()
+                expr = res.register(self.expr())
+                if res.error: return res
+                return res.success(VarAssignNode(var_name, expr))
+            return res.success(VarAssignNode(var_name))
         if self.tok.matches(INC):
             res.register_next()
             self.next()
@@ -1657,10 +1656,14 @@ class Interpreter:
     def visit_VarAssignNode(self, node: VarAssignNode, context: Context):
         res = RTResult()
         var_name = node.var_name_tok.value
-        value = res.register(self.visit(node.value_node, context))
-        if res.should_return(): return res
-        context.vars.set(var_name, value)
-        return res.success(value)
+        if node.value_node:
+            value = res.register(self.visit(node.value_node, context))
+            if res.should_return(): return res
+            context.vars.set(var_name, value)
+            return res.success(value)
+        else:
+            context.vars.set(var_name, Null())
+            return res.success(Null())
     def visit_BinOpNode(self, node: BinOpNode, context: Context): # bin op
         res = RTResult()
         left = res.register(self.visit(node.left_node, context))
@@ -1787,10 +1790,10 @@ class Interpreter:
         res = RTResult()
         args = []
         value_to_call = res.register(self.visit(node.node_to_call, context))
+        if res.should_return(): return res
         if not isinstance(value_to_call, BaseFunction): return res.failure(RTError(
             node.pos_start, node.pos_end, f"cannot call a non-function value", context
         ))
-        if res.should_return(): return res
         value_to_call = value_to_call.copy().set_pos(node.pos_start, node.pos_end)
         for arg_node in node.arg_nodes:
             args.append(res.register(self.visit(arg_node, context)))
