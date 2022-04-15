@@ -104,6 +104,9 @@ class UnimplementedError(Error):
 INT         = "INT"
 FLOAT       = "FLOAT"
 STRING      = "STRING"
+NULL        = "NULL"
+TRUE        = "TRUE"
+FALSE       = "FALSE"
 IDENTIFIER  = "IDENTIFIER"
 KEYWORD     = "KEYWORD"
 PLUS        = "PLUS"
@@ -132,6 +135,9 @@ REP         = "REP"
 NL          = "NL"
 EOF         = "EOF"
 KEYWORDS    = {
+    "null":     "null",
+    "true":     "true",
+    "false":    "false",
     "var_def":  "var",
     "bool_and": "and",
     "bool_or":  "or",
@@ -151,8 +157,8 @@ KEYWORDS    = {
     "next":     "next",
     "return":   "return",
 }
-INVALIDSYNTAX_START = f"number, string, identifier, '+', '-', '(', '[', '{KEYWORDS['var_def']}', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
-INVALIDSYNTAX_ALL = f"number, string, identifier, '+', '-', '*', '/', '**' '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}, '{KEYWORDS['bool_not']}'"
+INVALIDSYNTAX_START = f"number, null, bool, string, identifier, '+', '-', '(', '[', '{KEYWORDS['var_def']}', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
+INVALIDSYNTAX_ALL = f"number, null, bool, string, identifier, '+', '-', '*', '/', '**' '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}, '{KEYWORDS['bool_not']}'"
 class Token:
     def __init__(self, type_: str, value=None, pos_start=None, pos_end=None):
         self.type = type_
@@ -292,7 +298,11 @@ class Lexer:
             self.next()
         tok_type = KEYWORD if id_str in KEYWORDS.values() else IDENTIFIER
         tok_type = IN if id_str == KEYWORDS["in"] else tok_type
-        return Token(tok_type, id_str, pos_start, self.pos.copy())
+        tok_type = NULL if id_str == KEYWORDS["null"] else tok_type
+        tok_type = TRUE if id_str == KEYWORDS["true"] else tok_type
+        tok_type = FALSE if id_str == KEYWORDS["false"] else tok_type
+        if tok_type in (KEYWORD, IDENTIFIER): return Token(tok_type, id_str, pos_start, self.pos.copy())
+        else: return Token(tok_type, None, pos_start, self.pos.copy())
     def make_ne(self):
         pos_start = self.pos.copy()
         self.next()
@@ -353,14 +363,28 @@ class NumberNode:
         self.pos_start  = tok.pos_start.copy()
         self.pos_end    = tok.pos_end.copy()
     def __repr__(self):
-        return f"(node {self.tok})"
+        return f"(number {self.tok})"
+class NullNode:
+    def __init__(self, tok):
+        self.tok        = tok
+        self.pos_start  = tok.pos_start.copy()
+        self.pos_end    = tok.pos_end.copy()
+    def __repr__(self):
+        return f"(null)"
+class BoolNode:
+    def __init__(self, tok):
+        self.tok        = tok
+        self.pos_start  = tok.pos_start.copy()
+        self.pos_end    = tok.pos_end.copy()
+    def __repr__(self):
+        return f"(bool {self.tok})"
 class StringNode:
     def __init__(self, tok):
         self.tok        = tok
         self.pos_start  = tok.pos_start.copy()
         self.pos_end    = tok.pos_end.copy()
     def __repr__(self):
-        return f"(node {self.tok})"
+        return f"(string \"{self.tok}\")"
 class ListNode:
     def __init__(self, element_nodes, pos_start, pos_end):
         self.element_nodes = element_nodes
@@ -831,6 +855,14 @@ class Parser:
             res.register_next()
             self.next()
             return res.success(NumberNode(tok))
+        if tok.type == NULL:
+            res.register_next()
+            self.next()
+            return res.success(NullNode(tok))
+        if tok.type in (TRUE, FALSE):
+            res.register_next()
+            self.next()
+            return res.success(BoolNode(tok))
         elif tok.type == IDENTIFIER:
             res.register_next()
             self.next()
@@ -1096,42 +1128,150 @@ class Value:
     def set_context(self, context=None):
         self.context = context
         return self
+    def comp_both(self, other):
+        error = None
+        if isinstance(self, (Number, Bool, String)):
+            left = self
+        else:
+            left, error = self.as_number()
+            if error: return None, None, error
+        if isinstance(other, (Number, Bool, String)):
+            right = other
+        else:
+            right, error = other.as_number()
+            if error: return None, None, error
+        return left, right, error
+    def bool_both(self, other):
+        right, error = other.as_bool()
+        if error: return None, None, error
+        left, error = self.as_bool()
+        if error: return None, None, error
+        return left, right, error
+    def number_both(self, other):
+        right, error = other.as_number()
+        if error: return None, None, error
+        left, error = self.as_number()
+        if error: return None, None, error
+        return left, right, error
     def add(self, other):
-        return None, self.illagel_operation(other)
+        if isinstance(self, List):
+            elements = self.elements
+            elements.append(other)
+            return List(elements), None
+        if isinstance(self, String):
+            if isinstance(other, String):
+                return String(self.value + other.value), None
+            return None, self.illagel_operation(other)
+        left, right, error = self.number_both(other)
+        if error: return None, error
+        return Number(left.value + right.value), None
     def sub(self, other):
-        return None, self.illagel_operation(other)
+        if isinstance(self, List):
+            right, error = other.as_number()
+            if error: return None, error
+            elements = self.elements
+            elements.pop(right.value)
+            return List(elements), None
+        left, right, error = self.number_both(other)
+        if error: return None, error
+        return Number(left.value - right.value), None
     def mul(self, other):
-        return None, self.illagel_operation(other)
+        if isinstance(self, List) and isinstance(other, List):
+            elements = self.elements
+            elements.extend(other.elements)
+            return List(elements), None
+        left, right, error = self.number_both(other)
+        if error: return None, error
+        return Number(left.value * right.value), None
     def div(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.number_both(other)
+        if error: return None, error
+        if right.value == 0: return None, RTError(self.pos_start, other.pos_end, "division by zero", self.context)
+        return Number(left.value / right.value), None
     def pow(self, other):
+        left, right, error = self.number_both(other)
+        if error: return None, error
+        return Number(left.value ** right.value), None
+    def index(self, other):
+        right, error = other.as_number()
+        if isinstance(self, List):
+            try:
+                return self.elements[right.value], None
+            except IndexError:
+                return None, RTError(
+                    other.pos_start, other.pos_end,
+                    f"index out of range ({right.value} is over {len(self.elements) - 1})", self.context
+                )
+        if isinstance(self, String):
+            try:
+                return String(self.value[right.value]), None
+            except IndexError:
+                return None, RTError(
+                    other.pos_start, other.pos_end,
+                    f"index out of range ({right.value} is over {len(self.value) - 1})", self.context
+                )
         return None, self.illagel_operation(other)
     def neg(self):
-        return None, self.illagel_operation()
+        left, error = self.as_number()
+        if error: return None, error
+        return Number(-left.value), None
     def _not(self):
-        return None, self.illagel_operation()
+        left, error = self.as_bool()
+        if error: return None, error
+        return Bool(not left.value), None
     def _and(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.bool_both(other)
+        if error: return None, error
+        return Bool(left.value and right.value), None
     def _or(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.bool_both(other)
+        if error: return None, error
+        return Bool(left.value or right.value), None
     def _in(self, other):
+        if isinstance(other, List):
+            values = []
+            for val in other.elements:
+                if isinstance(val, List):
+                    values.append(val.elements)
+                else:
+                    values.append(val.value)
+            if isinstance(self, List):
+                return Bool(self.elements in values), None
+            else:
+                return Bool(self.value in values), None
+        if isinstance(other, String) and isinstance(self, String):
+            return Bool(self.value in other.value), None
         return None, self.illagel_operation(other)
     def ee(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.comp_both(other)
+        if error: return None, error
+        return Bool(left.value == right.value), None
     def ne(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.comp_both(other)
+        if error: return None, error
+        return Bool(left.value != right.value), None
     def lt(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.comp_both(other)
+        if error: return None, error
+        return Bool(left.value < right.value), None
     def gt(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.comp_both(other)
+        if error: return None, error
+        return Bool(left.value > right.value), None
     def lte(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.comp_both(other)
+        if error: return None, error
+        return Bool(left.value <= right.value), None
     def gte(self, other):
-        return None, self.illagel_operation(other)
+        left, right, error = self.comp_both(other)
+        if error: return None, error
+        return Bool(left.value >= right.value), None
     def as_number(self):
-        return Number(1), None
+        return None, self.illagel_cast("number")
     def as_string(self):
         return None, self.illagel_cast("string")
+    def as_bool(self):
+        return None, self.illagel_cast("bool")
     def is_true(self):
         return False
     def illagel_cast(self, cast_to):
@@ -1149,139 +1289,67 @@ class Value:
         return None, self.illagel_operation()
     def __repr__(self):
         return "?"
+class Null(Value):
+    def copy(self):
+        copy = Null()
+        copy.set_context(self.context)
+        copy.set_pos(self.pos_start, self.pos_end)
+        return copy
+    def as_number(self):
+        return Number(0), None
+    def as_bool(self):
+        return Bool(False), None
+    def as_string(self):
+        return String("null"), None
+    def is_true(self):
+        return False
+    def __repr__(self):
+        return "null"
 class Number(Value):
     def __init__(self, value):
         super().__init__()
-        self.value = value
+        if float(value) == int(value):
+            self.value = int(value)
+        else:
+            self.value = float(value)
     def copy(self):
         copy = Number(self.value)
         copy.set_context(self.context)
         copy.set_pos(self.pos_start, self.pos_end)
         return copy
-    def add(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(self.value + other.value).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def sub(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(self.value - other.value).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def mul(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(self.value * other.value).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def div(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            if other.value == 0:
-                return None, RTError(other.pos_start, other.pos_end, "division by zero", self.context)
-            return Number(self.value / other.value).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def pow(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(self.value ** other.value).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def mod(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(self.value % other.value).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def neg(self):
-        return Number(-self.value).set_context(self.context), None
-    def _not(self):
-        return Number(int(not bool(self.value))).set_context(self.context), None
-    def _and(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(int(bool(self.value) and bool(other.value))).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def _or(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(int(bool(self.value) or bool(other.value))).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def _in(self, other):
-        values = []
-        for val in other.elements:
-            if isinstance(val, List): values.append(val.elements)
-            elif isinstance(val, String): values.append(val.value)
-            elif isinstance(val, Number): values.append(val.value)
-            else: return None, self.illagel_operation(other)
-        if isinstance(other, List):
-            return Number(int(self.value in values)).set_context(self.context), None
-        return None, self.illagel_operation(other)
-    def ee(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(int(self.value == other.value)).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def ne(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(int(self.value != other.value)).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def lt(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(int(self.value < other.value)).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def gt(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(int(self.value > other.value)).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def lte(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(int(self.value <= other.value)).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def gte(self, other):
-        other, error = other.as_number()
-        if error: return None, error
-        if isinstance(other, Number):
-            return Number(int(self.value >= other.value)).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
     def as_number(self):
         return self.copy(), None
+    def as_string(self):
+        return String(str(self.value)), None
+    def as_bool(self):
+        return Bool(self.value != 0), None
     def is_true(self):
         return self.value != 0
     def __repr__(self):
         return f"{self.value}"
-class String(Value):
+class Bool(Value):
     def __init__(self, value):
         super().__init__()
         self.value = value
+    def __repr__(self):
+        return str(self.value).lower()
+    def copy(self):
+        copy = Bool(self.value)
+        copy.set_context(self.context)
+        copy.set_pos(self.pos_start, self.pos_end)
+        return copy
+    def as_number(self):
+        return Number(1 if self.value else 0), None
+    def as_string(self):
+        return String(str(self.value).lower()), None
+    def as_bool(self):
+        return Bool(self.value), None
+    def is_true(self):
+        return self.value
+class String(Value):
+    def __init__(self, value):
+        super().__init__()
+        self.value = str(value)
     def copy(self):
         copy = String(self.value)
         copy.set_context(self.context)
@@ -1293,49 +1361,6 @@ class String(Value):
         return self.value
     def is_true(self):
         return len(self.value) > 0
-    def add(self, other):
-        if isinstance(other, String):
-            return String(self.value + other.value).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def mul(self, other):
-        if isinstance(other, Number):
-            return String(self.value * other.value).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def index(self, other):
-        if isinstance(other, Number):
-            try:
-                return String(self.value[other.value]), None
-            except IndexError:
-                return None, RTError(
-                    other.pos_start, other.pos_end,
-                    f"index out of range (str has length of {len(self.value)})", self.context
-                )
-        else:
-            return None, self.illagel_operation(other)
-    def _in(self, other):
-        if isinstance(other, List):
-            values = []
-            for val in other.elements:
-                if isinstance(val, List): values.append(val.elements)
-                elif isinstance(val, String): values.append(val.value)
-                elif isinstance(val, Number): values.append(val.value)
-                else: return None, self.illagel_operation(other)
-            return Number(int(self.value in values)).set_context(self.context), None
-        if isinstance(other, String):
-            return Number(int(self.value in other.value)).set_context(self.context), None
-        return None, self.illagel_operation(other)
-    def ee(self, other):
-        if isinstance(other, String):
-            return Number(int(self.value == other.value)).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
-    def ne(self, other):
-        if isinstance(other, String):
-            return Number(int(self.value != other.value)).set_context(self.context), None
-        else:
-            return None, self.illagel_operation(other)
     def __repr__(self):
         return f'"{self.value}"'
 class List(Value):
@@ -1347,53 +1372,8 @@ class List(Value):
         copy.set_context(self.context)
         copy.set_pos(self.pos_start, self.pos_end)
         return copy
-    def add(self, other):
-        new_list = self.copy()
-        new_list.elements.append(other)
-        return new_list, None
-    def sub(self, other):
-        if isinstance(other, Number):
-            new_list = self.copy()
-            try:
-                new_list.elements.pop(other.value)
-                return new_list, None
-            except IndexError:
-                return None, RTError(
-                    other.pos_start, other.pos_end,
-                    f"index out of range (list has length of {len(self.elements)})", self.context
-                )
-        else:
-            return None, self.illagel_operation(other)
-    def mul(self, other):
-        if isinstance(other, List):
-            new_list = self.copy()
-            new_list.elements.extend(other.elements)
-            return new_list, None
-        else:
-            return None, self.illagel_operation(other)
-    def index(self, other):
-        if isinstance(other, Number):
-            try:
-                return self.elements[other.value], None
-            except IndexError:
-                return None, RTError(
-                    other.pos_start, other.pos_end,
-                    f"index out of range (list has length of {len(self.elements)})", self.context
-                )
-        else:
-            return None, self.illagel_operation(other)
-    def _in(self, other):
-        values = []
-        for val in other.elements:
-            if isinstance(val, List): values.append(val.elements)
-            elif isinstance(val, String): values.append(val.value)
-            elif isinstance(val, Number): values.append(val.value)
-            else: return None, self.illagel_operation(other)
-        if isinstance(other, List):
-            return Number(int(self.elements in values)).set_context(self.context), None
-        return None, self.illagel_operation(other)
     def __repr__(self):
-        return f"[{', '.join([str(x) for x in self.elements])}]"
+        return f"[{', '.join([repr(x) for x in self.elements])}]"
 class BaseFunction(Value):
     def __init__(self, name):
         super().__init__()
@@ -1453,7 +1433,7 @@ class Function(BaseFunction):
         if res.should_return(): return res
         value = res.register(interpreter.visit(self.body_node, new_context))
         if res.should_return() and res.func_return_value is None: return res
-        return res.success((value if self.auto_return else None) or res.func_return_value or Number.null)
+        return res.success((value if self.auto_return else None) or res.func_return_value or Null())
     def __repr__(self):
         return f"<function '{self.name}'>"
 class BuiltInFunction(BaseFunction):
@@ -1500,16 +1480,16 @@ class BuiltInFunction(BaseFunction):
         return RTResult().success(Number(number))
     execute_input_num.arg_names = []
     def execute_is_num(self, exec_ctx):
-        return RTResult().success(Number(int(isinstance(exec_ctx.vars.get("is_value"), Number))))
+        return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), Number)))
     execute_is_num.arg_names = ["is_value"]
     def execute_is_str(self, exec_ctx):
-        return RTResult().success(Number(int(isinstance(exec_ctx.vars.get("is_value"), String))))
+        return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), String)))
     execute_is_str.arg_names = ["is_value"]
     def execute_is_list(self, exec_ctx):
-        return RTResult().success(Number(int(isinstance(exec_ctx.vars.get("is_value"), List))))
+        return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), List)))
     execute_is_list.arg_names = ["is_value"]
     def execute_is_func(self, exec_ctx):
-        return RTResult().success(Number(int(isinstance(exec_ctx.vars.get("is_value"), BaseFunction))))
+        return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), BaseFunction)))
     execute_is_func.arg_names = ["is_value"]
     def execute_len(self, exec_ctx):
         value = exec_ctx.vars.get("len_value")
@@ -1597,9 +1577,6 @@ class BuiltInFunction(BaseFunction):
             "argument has to be a string", exec_ctx
         ))
     execute_error.arg_names = ["error_value"]
-Number.null                 = Number(0)
-Number.true                 = Number(1)
-Number.false                = Number(0)
 Number.pi                   = Number(pi)
 String.empty                = String("")
 List.empty                  = List([])
@@ -1652,6 +1629,19 @@ class Interpreter:
         raise Exception(f"no visit_{type(node).__name__} method defined")
     def visit_NumberNode(self, node: NumberNode, context: Context): # number
         return RTResult().success(Number(node.tok.value).set_context(context).set_pos(node.pos_start, node.pos_end))
+    def visit_StringNode(self, node: StringNode, context: Context):
+        return RTResult().success(String(node.tok.value).set_context(context).set_pos(node.pos_start, node.pos_end))
+    def visit_ListNode(self, node: ListNode, context: Context):
+        res = RTResult()
+        elements = []
+        for element_node in node.element_nodes:
+            elements.append(res.register(self.visit(element_node, context)))
+            if res.should_return(): return res
+        return res.success(List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
+    def visit_NullNode(self, node: NullNode, context: Context):
+        return RTResult().success(Null().set_context(context).set_pos(node.pos_start, node.pos_end))
+    def visit_BoolNode(self, node: NullNode, context: Context):
+        return RTResult().success(Bool(node.tok.type == TRUE).set_context(context).set_pos(node.pos_start, node.pos_end))
     def visit_VarAccessNode(self, node: VarAccessNode, context: Context):
         res = RTResult()
         var_name = node.var_name_tok.value
@@ -1659,7 +1649,7 @@ class Interpreter:
         if not value:
             return res.failure(RTError(
                 node.pos_start, node.pos_end,
-                f"'{var_name}' is not defined",
+                f"'{var_name}' is not defined" if not var_name in ["father", "dad", "life"] else f"you have no {var_name}",
                 context
             ))
         value = value.copy().set_pos(node.pos_start, node.pos_end).set_context(context)
@@ -1738,13 +1728,13 @@ class Interpreter:
             if condintion_value.is_true():
                 expr_value = res.register(self.visit(expr, context))
                 if res.should_return(): return res
-                return res.success(Number.null if return_null else expr_value)
+                return res.success(Null() if return_null else expr_value)
         if node.else_case:
             expr, return_null = node.else_case
             else_value = res.register(self.visit(expr, context))
             if res.should_return(): return res
-            return res.success(Number.null if return_null else else_value)
-        return res.success(Number.null)
+            return res.success(Null() if return_null else else_value)
+        return res.success(Null())
     def visit_ForNode(self, node: ForNode, context: Context):
         res = RTResult()
         elements = []
@@ -1770,7 +1760,7 @@ class Interpreter:
             if res.loop_next: continue
             if res.loop_break: break
             if value: elements.append(value)
-        return res.success(Number.null if node.return_null else List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
+        return res.success(Null() if node.return_null else List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
     def visit_WhileNode(self, node: WhileNode, context: Context):
         res = RTResult()
         elements = []
@@ -1783,7 +1773,7 @@ class Interpreter:
             if res.loop_next: continue
             if res.loop_break: break
             if value: elements.append(value)
-        return res.success(Number.null if node.return_null else List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
+        return res.success(Null() if node.return_null else List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
     def visit_FuncDefNode(self, node: FuncDefNode, context: Context):
         res = RTResult()
         func_name = node.var_name_tok.value if node.var_name_tok else None
@@ -1797,7 +1787,7 @@ class Interpreter:
         res = RTResult()
         args = []
         value_to_call = res.register(self.visit(node.node_to_call, context))
-        if not isinstance(value_to_call, (Function, BuiltInFunction)): return res.failure(RTError(
+        if not isinstance(value_to_call, BaseFunction): return res.failure(RTError(
             node.pos_start, node.pos_end, f"cannot call a non-function value", context
         ))
         if res.should_return(): return res
@@ -1809,22 +1799,13 @@ class Interpreter:
         if res.should_return(): return res
         return_value = return_value.copy().set_pos(node.pos_start, node.pos_end).set_context(context)
         return res.success(return_value)
-    def visit_StringNode(self, node: StringNode, context: Context):
-        return RTResult().success(String(node.tok.value).set_context(context).set_pos(node.pos_start, node.pos_end))
-    def visit_ListNode(self, node: ListNode, context: Context):
-        res = RTResult()
-        elements = []
-        for element_node in node.element_nodes:
-            elements.append(res.register(self.visit(element_node, context)))
-            if res.should_return(): return res
-        return res.success(List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
     def visit_ReturnNode(self, node: ReturnNode, context: Context):
         res = RTResult()
         if node.node_to_return:
             value = res.register(self.visit(node.node_to_return, context))
             if res.should_return(): return res
         else:
-            value = Number.null
+            value = Null()
         return res.success_return(value)
     def visit_NextNode(self, node: NextNode, context: Context):
         return RTResult().success_next()
@@ -1833,10 +1814,7 @@ class Interpreter:
 
 """RUN"""
 global_vars = Vars()
-global_vars.set("null", Number.null)
-global_vars.set("true", Number.true)
-global_vars.set("false", Number.false)
-global_vars.set("pi", Number.pi)
+global_vars.set("PI", Number.pi)
 global_vars.set("print", BuiltInFunction.print)
 global_vars.set("input", BuiltInFunction.input)
 global_vars.set("inputNum", BuiltInFunction.input_num)
