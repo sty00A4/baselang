@@ -1134,40 +1134,59 @@ class Value:
             left = self
         else:
             left, error = self.as_number()
-            if error: return None, error
+            if error: return None, None, error
         if isinstance(other, (Number, Bool, String)):
             right = other
         else:
             right, error = other.as_number()
-            if error: return None, error
+            if error: return None, None, error
         return left, right, error
     def bool_both(self, other):
         right, error = other.as_bool()
-        if error: return None, error
+        if error: return None, None, error
         left, error = self.as_bool()
-        if error: return None, error
+        if error: return None, None, error
         return left, right, error
     def number_both(self, other):
         right, error = other.as_number()
-        if error: return None, error
+        if error: return None, None, error
         left, error = self.as_number()
-        if error: return None, error
+        if error: return None, None, error
         return left, right, error
     def add(self, other):
+        if isinstance(self, List):
+            elements = self.elements
+            elements.append(other)
+            return List(elements), None
+        if isinstance(self, String):
+            if isinstance(other, String):
+                return String(self.value + other.value), None
+            return None, self.illagel_operation(other)
         left, right, error = self.number_both(other)
         if error: return None, error
         return Number(left.value + right.value), None
     def sub(self, other):
+        if isinstance(self, List):
+            right, error = other.as_number()
+            if error: return None, error
+            elements = self.elements
+            elements.pop(right.value)
+            return List(elements), None
         left, right, error = self.number_both(other)
         if error: return None, error
         return Number(left.value - right.value), None
     def mul(self, other):
+        if isinstance(self, List) and isinstance(other, List):
+            elements = self.elements
+            elements.extend(other.elements)
+            return List(elements), None
         left, right, error = self.number_both(other)
         if error: return None, error
         return Number(left.value * right.value), None
     def div(self, other):
         left, right, error = self.number_both(other)
         if error: return None, error
+        if right.value == 0: return None, RTError(self.pos_start, other.pos_end, "division by zero", self.context)
         return Number(left.value / right.value), None
     def pow(self, other):
         left, right, error = self.number_both(other)
@@ -1248,7 +1267,7 @@ class Value:
         if error: return None, error
         return Bool(left.value >= right.value), None
     def as_number(self):
-        return Number(0), None
+        return None, self.illagel_cast("number")
     def as_string(self):
         return None, self.illagel_cast("string")
     def as_bool(self):
@@ -1354,7 +1373,7 @@ class List(Value):
         copy.set_pos(self.pos_start, self.pos_end)
         return copy
     def __repr__(self):
-        return f"[{', '.join([str(x) for x in self.elements])}]"
+        return f"[{', '.join([repr(x) for x in self.elements])}]"
 class BaseFunction(Value):
     def __init__(self, name):
         super().__init__()
@@ -1630,7 +1649,7 @@ class Interpreter:
         if not value:
             return res.failure(RTError(
                 node.pos_start, node.pos_end,
-                f"'{var_name}' is not defined",
+                f"'{var_name}' is not defined" if not var_name in ["father", "dad", "life"] else f"you have no {var_name}",
                 context
             ))
         value = value.copy().set_pos(node.pos_start, node.pos_end).set_context(context)

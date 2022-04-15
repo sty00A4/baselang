@@ -1,7 +1,7 @@
 func join(list, sep)
     var res = ""
     for i = 0, len(list)
-        var res = res + list/i + (if i == len(list) - 1 then "" else sep)
+        var res = res + list#i + (if i == len(list) - 1 then "" else sep)
     end
     return res
 end
