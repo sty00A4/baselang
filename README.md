@@ -1,2 +1,2 @@
 # basepy
-a programming language taking inspiration from the **TI-BASIC** programming language and **Lua**
+a programming language taking inspiration from **Lua** and other **modern languages** implemented in **Python**
