@@ -4,18 +4,13 @@ from string import digits as DIGITS
 from sys import argv
 from time import sleep, time
 from math import pi, floor, ceil, fabs
-
 LETTERS += "_"
 VAR_CHARS = LETTERS + DIGITS
 def string_with_arrows(text, pos_start, pos_end):
     result = ''
-
-    # Calculate indices
     idx_start = max(text.rfind('\n', 0, pos_start.idx), 0)
     idx_end = text.find('\n', idx_start + 1)
     if idx_end < 0: idx_end = len(text)
-
-    # Generate each line
     line_count = pos_end.ln - pos_start.ln + 1
     for i in range(line_count):
         # Calculate line columns
@@ -31,7 +26,6 @@ def string_with_arrows(text, pos_start, pos_end):
         idx_start = idx_end
         idx_end = text.find('\n', idx_start + 1)
         if idx_end < 0: idx_end = len(text)
-
     return result.replace('\t', '')
 
 """POSITION"""
@@ -61,6 +55,11 @@ class Error:
         self.details = details
     def as_string(self):
         return f"{self.name}: {self.details}" + f"\nFile {self.pos_start.fn}, line {self.pos_start.ln + 1}" + f"\n{string_with_arrows(self.pos_start.ftxt, self.pos_start, self.pos_end)}"
+class UserDefinedError(Error):
+    def __init__(self, name, details):
+        super().__init__(None, None, name, details)
+    def as_string(self):
+        return f"{self.name}: {self.details}"
 # lexer
 class IllagelCharError(Error):
     def __init__(self, pos_start, pos_end, details: str):
@@ -1648,14 +1647,15 @@ class BuiltInFunction(BaseFunction):
             exit(value.value)
     execute_exit.arg_names = ["exit_value"]
     def execute_error(self, exec_ctx):
+        head = exec_ctx.vars.get("error_head")
         value = exec_ctx.vars.get("error_value")
         if isinstance(value, String):
-            exit("Error: " + value.value)
+            return RTResult().failure(UserDefinedError(head.value, value.value))
         return RTResult().failure(RTError(
             self.pos_start, self.pos_end,
             "argument has to be a string", exec_ctx
         ))
-    execute_error.arg_names = ["error_value"]
+    execute_error.arg_names = ["error_head", "error_value"]
 Number.pi                   = Number(pi)
 String.empty                = String("")
 List.empty                  = List([])
@@ -1921,10 +1921,10 @@ class Interpreter:
             return res.failure(RTError(node.pos_start, node.pos_end, f"use file '{fn.value+'.by'}' not found", context))
         lexer = Lexer(fn.value+".by", text)
         tokens, error = lexer.make_tokens()
-        if error: return error
+        if error: return res.failure(error)
         parser = Parser(tokens)
         ast = parser.parse()
-        if ast.error: return ast.error
+        if ast.error: return res.failure(ast.error)
         for n in ast.node.element_nodes:
             if isinstance(n, FuncDefNode):
                 res.register(self.visit_FuncDefNode(n, context))

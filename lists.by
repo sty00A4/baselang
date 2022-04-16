@@ -1,0 +1,13 @@
+func remove(list, x)
+    if not isList(list) then error("Type Error", "expected list got " + type(x))
+    var new_list = []
+    forEvery e of list do if e != x then var new_list = new_list + e
+    return new_list
+end
+func filter(listA, listB)
+    if not isList(a) then error("Type Error", "expected list got " + type(b))
+    if not isList(b) then error("Type Error", "expected list got " + type(b))
+    var filtered = []
+    forEvery e of listA do if not (e in listB) then var filtered = filtered + e
+    return filtered
+end
