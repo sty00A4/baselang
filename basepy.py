@@ -157,6 +157,7 @@ KEYWORDS    = {
     "break":    "break",
     "next":     "next",
     "return":   "return",
+    "use":      "use",
 }
 INVALIDSYNTAX_START = f"number, null, bool, string, identifier, '+', '-', '(', '[', '{KEYWORDS['var_def']}', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
 INVALIDSYNTAX_ALL = f"number, null, bool, string, identifier, '+', '-', '*', '/', '**' '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}, '{KEYWORDS['bool_not']}'"
@@ -494,6 +495,11 @@ class BreakNode:
     def __init__(self, pos_start, pos_end):
         self.pos_start = pos_start
         self.pos_end = pos_end
+class UseNode:
+    def __init__(self, file_name_tok):
+        self.file_name_tok = file_name_tok
+        self.pos_start = file_name_tok.pos_start.copy()
+        self.pos_end = file_name_tok.pos_end.copy()
 
 """PARSE RESULT"""
 class ParseResult:
@@ -1050,6 +1056,12 @@ class Parser:
                 if res.error: return res
                 return res.success(VarAssignNode(var_name, expr))
             return res.success(VarAssignNode(var_name))
+        if self.tok.matches(KEYWORD, KEYWORDS["use"]):
+            res.register_next()
+            self.next()
+            file_name = res.register(self.expr())
+            if res.error: return res
+            return res.success(UseNode(file_name))
         if self.tok.matches(INC):
             res.register_next()
             self.next()
@@ -1896,7 +1908,31 @@ class Interpreter:
         return RTResult().success_next()
     def visit_BreakNode(self, node: BreakNode, context: Context):
         return RTResult().success_break()
-
+    def visit_UseNode(self, node: UseNode, context: Context):
+        res = RTResult()
+        fn = res.register(self.visit(node.file_name_tok, context))
+        if res.error: return res
+        if not isinstance(fn, String):
+            return res.failure(RTError(node.pos_start, node.pos_end, "expected string", context))
+        try:
+            with open(fn.value+".by", "r") as f:
+                text = f.read()
+        except FileNotFoundError:
+            return res.failure(RTError(node.pos_start, node.pos_end, f"use file '{fn.value+'.by'}' not found", context))
+        lexer = Lexer(fn.value+".by", text)
+        tokens, error = lexer.make_tokens()
+        if error: return error
+        parser = Parser(tokens)
+        ast = parser.parse()
+        if ast.error: return ast.error
+        for n in ast.node.element_nodes:
+            if isinstance(n, FuncDefNode):
+                res.register(self.visit_FuncDefNode(n, context))
+                if res.error: return res
+            if isinstance(n, VarAssignNode):
+                res.register(self.visit_VarAssignNode(n, context))
+                if res.error: return res
+        return res.success(fn)
 """RUN"""
 global_vars = Vars()
 global_vars.set("PI", Number.pi)
