@@ -1,10 +1,10 @@
-# Basepy
+# Baselang
 
 #### INTRODUCTION
 
-Basepy is a high level, dynamically typed programming language written completely in python. The whole language is
+Baselang is a high level, dynamically typed programming language written completely in python. The whole language is
 compressed in one file
-`basepy.py`.
+`baselang.py`.
 
 #### SYNTAX
 
