@@ -1893,15 +1893,25 @@ class Interpreter:
     def visit_UseNode(self, node: UseNode, context: Context):
         res = RTResult()
         fn = res.register(self.visit(node.file_name_tok, context))
+        file_name = ""
         if res.error: return res
         if not isinstance(fn, String):
             return res.failure(RTError(node.pos_start, node.pos_end, "expected string", context))
         try:
             with open(fn.value+".b", "r") as f:
                 text = f.read()
+                file_name = fn.value+".b"
         except FileNotFoundError:
-            return res.failure(RTError(node.pos_start, node.pos_end, f"use file '{fn.value+'.b'}' not found", context))
-        lexer = Lexer(fn.value+".b", text)
+            try:
+                with open(fn.value + ".py", "r") as f:
+                    text = f.read()
+                    file_name = fn.value + ".py"
+            except FileNotFoundError:
+                return res.failure(RTError(node.pos_start, node.pos_end, f"use file '{file_name}' not found", context))
+        if file_name.endswith(".py"):
+            exec(text)
+            return res.success(file_name)
+        lexer = Lexer(file_name, text)
         tokens, error = lexer.make_tokens()
         if error: return res.failure(error)
         parser = Parser(tokens)
@@ -1914,7 +1924,7 @@ class Interpreter:
             if isinstance(n, VarAssignNode):
                 res.register(self.visit_VarAssignNode(n, context))
                 if res.error: return res
-        return res.success(fn)
+        return res.success(file_name)
 """RUN"""
 global_vars = Vars()
 global_vars.set("print", BuiltInFunction.print)
