@@ -24,3 +24,9 @@ func startswith(str, suf)
     if not isStr(suf) then error("Type Error", "expected string got " + type(suf))
     return suf == sub(str, 0, len(suf))
 end
+func find(str, x)
+    if not isStr(str) then error("Type Error", "expected string got " + type(str))
+    if not isStr(x) then error("Type Error", "expected string got " + type(x))
+    for i = 0, len(str) do if startswith(sub(str, i, len(str)), x) then return i
+    return null
+end
