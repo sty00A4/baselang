@@ -101,8 +101,7 @@ class UnimplementedError(Error):
         super().__init__(pos_start, pos_end, "Unimplemented", details)
 
 """TOKENS"""
-INT         = "INT"
-FLOAT       = "FLOAT"
+NUMBER      = "NUMBER"
 STRING      = "STRING"
 NULL        = "NULL"
 TRUE        = "TRUE"
@@ -148,6 +147,8 @@ KEYWORDS    = {
     "elif":     "elif",
     "else":     "else",
     "for":      "for",
+    "forEvery": "forEvery",
+    "of":       "of",
     "step":     "step",
     "do":       "do",
     "while":    "while",
@@ -286,10 +287,8 @@ class Lexer:
             else:
                 num_str += self.char
             self.next()
-        if dot_count == 0:
-            return Token(INT, int(num_str), pos_start, self.pos.copy())
-        else:
-            return Token(FLOAT, float(num_str), pos_start, self.pos.copy())
+        if dot_count == 0: return Token(NUMBER, int(num_str), pos_start, self.pos.copy())
+        else: return Token(NUMBER, float(num_str), pos_start, self.pos.copy())
     def make_id(self):
         id_str = ""
         pos_start = self.pos.copy()
@@ -443,6 +442,15 @@ class ForNode:
         self.step_value_node    = step_value_node
         self.end_value_node     = end_value_node
         self.start_value_node   = start_value_node
+        self.var_name_tok       = var_name_tok
+        self.return_null = return_null
+
+        self.pos_start  = self.var_name_tok.pos_start
+        self.pos_end    = self.body_node.pos_end
+class ForEveryNode:
+    def __init__(self, var_name_tok, list_tok, body_node, return_null=False):
+        self.body_node          = body_node
+        self.list_name_tok      = list_tok
         self.var_name_tok       = var_name_tok
         self.return_null = return_null
 
@@ -734,6 +742,55 @@ class Parser:
             self.tok.pos_start, self.tok.pos_end,
             f"expected '{KEYWORDS['do']}' or new line"
         ))
+    def for_every_expr(self):
+        res = ParseResult()
+        if not self.tok.matches(KEYWORD, KEYWORDS["forEvery"]):
+            return res.failure(InvalidSyntaxError(
+                self.tok.pos_start, self.tok.pos_end,
+                f"expected '{KEYWORDS['forEvery']}'"
+            ))
+        res.register_next()
+        self.next()
+        if self.tok.type != IDENTIFIER:
+            return res.failure(InvalidSyntaxError(
+                self.tok.pos_start, self.tok.pos_end,
+                f"expected identifier"
+            ))
+        var_name = self.tok
+        res.register_next()
+        self.next()
+        if not self.tok.matches(KEYWORD, KEYWORDS["of"]):
+            return res.failure(InvalidSyntaxError(
+                self.tok.pos_start, self.tok.pos_end,
+                f"expected '{KEYWORDS['of']}'"
+            ))
+        res.register_next()
+        self.next()
+        list_value = res.register(self.expr())
+        if res.error: return res
+        if self.tok.matches(KEYWORD, KEYWORDS["do"]):
+            res.register_next()
+            self.next()
+            body = res.register(self.statement())
+            if res.error: return res
+            return res.success(ForEveryNode(var_name, list_value, body))
+        if self.tok.type == NL:
+            res.register_next()
+            self.next()
+            body = res.register(self.statements())
+            if res.error: return res
+            if not self.tok.matches(KEYWORD, KEYWORDS["end"]):
+                return res.failure(InvalidSyntaxError(
+                    self.tok.pos_start, self.tok.pos_end,
+                    f"expected '{KEYWORDS['end']}'"
+                ))
+            res.register_next()
+            self.next()
+            return res.success(ForEveryNode(var_name, list_value, body, True))
+        return res.failure(InvalidSyntaxError(
+            self.tok.pos_start, self.tok.pos_end,
+            f"expected '{KEYWORDS['do']}' or new line"
+        ))
     def if_expr(self):
         res = ParseResult()
         all_cases = res.register(self.if_expr_cases(KEYWORDS["if"]))
@@ -852,7 +909,7 @@ class Parser:
     def atom(self):
         res = ParseResult()
         tok = self.tok
-        if tok.type in (INT, FLOAT): # factor NumberNode
+        if tok.type == NUMBER: # factor NumberNode
             res.register_next()
             self.next()
             return res.success(NumberNode(tok))
@@ -886,19 +943,23 @@ class Parser:
             res.register_next()
             self.next()
             return res.success(StringNode(tok))
-        elif tok.matches(KEYWORD, KEYWORDS['if']):
+        elif tok.matches(KEYWORD, KEYWORDS["if"]):
             if_expr = res.register(self.if_expr())
             if res.error: return res
             return res.success(if_expr)
-        elif tok.matches(KEYWORD, KEYWORDS['for']):
+        elif tok.matches(KEYWORD, KEYWORDS["for"]):
             for_expr = res.register(self.for_expr())
             if res.error: return res
             return res.success(for_expr)
-        elif tok.matches(KEYWORD, KEYWORDS['while']):
+        elif tok.matches(KEYWORD, KEYWORDS["forEvery"]):
+            for_every_expr = res.register(self.for_every_expr())
+            if res.error: return res
+            return res.success(for_every_expr)
+        elif tok.matches(KEYWORD, KEYWORDS["while"]):
             while_expr = res.register(self.while_expr())
             if res.error: return res
             return res.success(while_expr)
-        elif tok.matches(KEYWORD, KEYWORDS['function']):
+        elif tok.matches(KEYWORD, KEYWORDS["function"]):
             func_def = res.register(self.func_def())
             if res.error: return res
             return res.success(func_def)
@@ -1481,6 +1542,9 @@ class BuiltInFunction(BaseFunction):
     def execute_is_num(self, exec_ctx):
         return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), Number)))
     execute_is_num.arg_names = ["is_value"]
+    def execute_is_bool(self, exec_ctx):
+        return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), Bool)))
+    execute_is_bool.arg_names = ["is_value"]
     def execute_is_str(self, exec_ctx):
         return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), String)))
     execute_is_str.arg_names = ["is_value"]
@@ -1490,6 +1554,10 @@ class BuiltInFunction(BaseFunction):
     def execute_is_func(self, exec_ctx):
         return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), BaseFunction)))
     execute_is_func.arg_names = ["is_value"]
+    def execute_type(self, exec_ctx):
+        value = exec_ctx.vars.get("type_value")
+        return RTResult().success(String(type(value).__name__.lower()))
+    execute_type.arg_names = ["type_value"]
     def execute_len(self, exec_ctx):
         value = exec_ctx.vars.get("len_value")
         if isinstance(value, List):
@@ -1532,7 +1600,7 @@ class BuiltInFunction(BaseFunction):
         sleep(n.value)
         return RTResult().success(BuiltInFunction.sleep)
     execute_sleep.arg_names = ["sleep_value"]
-    def execute_time(self, exec_ctx):
+    def execute_time(self, exec_ctxs):
         return RTResult().success(Number(time()))
     execute_time.arg_names = []
     def execute_floor(self, exec_ctx):
@@ -1583,9 +1651,11 @@ BuiltInFunction.print       = BuiltInFunction("print")
 BuiltInFunction.input       = BuiltInFunction("input")
 BuiltInFunction.input_num   = BuiltInFunction("input_num")
 BuiltInFunction.is_num      = BuiltInFunction("is_num")
+BuiltInFunction.is_bool     = BuiltInFunction("is_bool")
 BuiltInFunction.is_str      = BuiltInFunction("is_str")
 BuiltInFunction.is_list     = BuiltInFunction("is_list")
 BuiltInFunction.is_func     = BuiltInFunction("is_func")
+BuiltInFunction.type        = BuiltInFunction("type")
 BuiltInFunction.len         = BuiltInFunction("len")
 BuiltInFunction.run         = BuiltInFunction("run")
 BuiltInFunction.sleep       = BuiltInFunction("sleep")
@@ -1764,6 +1834,18 @@ class Interpreter:
             if res.loop_break: break
             if value: elements.append(value)
         return res.success(Null() if node.return_null else List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
+    def visit_ForEveryNode(self, node: ForEveryNode, context: Context):
+        res = RTResult()
+        elements = []
+        list_value = res.register(self.visit(node.list_name_tok, context))
+        for var_value in list_value.elements:
+            context.vars.set(node.var_name_tok.value, var_value)
+            value = res.register(self.visit(node.body_node, context))
+            if res.should_return() and (not res.loop_next) and (not res.loop_break): return res
+            if res.loop_next: continue
+            if res.loop_break: break
+            if value: elements.append(value)
+        return res.success(Null() if node.return_null else List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
     def visit_WhileNode(self, node: WhileNode, context: Context):
         res = RTResult()
         elements = []
@@ -1822,9 +1904,11 @@ global_vars.set("print", BuiltInFunction.print)
 global_vars.set("input", BuiltInFunction.input)
 global_vars.set("inputNum", BuiltInFunction.input_num)
 global_vars.set("isNum", BuiltInFunction.is_num)
+global_vars.set("isBool", BuiltInFunction.is_bool)
 global_vars.set("isStr", BuiltInFunction.is_str)
 global_vars.set("isList", BuiltInFunction.is_list)
 global_vars.set("isFunc", BuiltInFunction.is_func)
+global_vars.set("type", BuiltInFunction.type)
 global_vars.set("len", BuiltInFunction.len)
 global_vars.set("run", BuiltInFunction.run)
 global_vars.set("sleep", BuiltInFunction.sleep)
