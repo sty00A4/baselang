@@ -3,7 +3,7 @@ from string import ascii_letters as LETTERS
 from string import digits as DIGITS
 from sys import argv
 from time import sleep, time
-from math import pi, floor, ceil, fabs
+from math import pi
 LETTERS += "_"
 VAR_CHARS = LETTERS + DIGITS
 def string_with_arrows(text, pos_start, pos_end):
@@ -111,6 +111,7 @@ PLUS        = "PLUS"
 MINUS       = "MINUS"
 MUL         = "MUL"
 DIV         = "DIV"
+DIVINT      = "DIVINT"
 POW         = "POW"
 INDEX       = "INDEX"
 MOD         = "MOD"
@@ -248,8 +249,12 @@ class Lexer:
                     tokens[-1] = Token(POW, pos_start=pos_start, pos_end=self.pos.copy())
                     self.next()
             elif self.char == "/": # divide
+                pos_start = self.pos.copy()
                 tokens.append(Token(DIV, pos_start=self.pos.copy()))
                 self.next()
+                if self.char == "/": # int divide
+                    tokens[-1] = Token(DIVINT, pos_start=pos_start, pos_end=self.pos.copy())
+                    self.next()
             elif self.char == "(": # evaluation in
                 tokens.append(Token(EVALIN, pos_start=self.pos.copy()))
                 self.next()
@@ -1018,7 +1023,7 @@ class Parser:
             return res.success(UnaryOpNode(tok, factor))
         return self.power()
     def term(self):
-        return self.bin_op(self.factor, [MUL, DIV])
+        return self.bin_op(self.factor, [MUL, DIV, DIVINT])
     def arith_expr(self):
         return self.bin_op(self.term, (PLUS, MINUS))
     def comp_expr(self):
@@ -1259,6 +1264,11 @@ class Value:
         if error: return None, error
         if right.value == 0: return None, RTError(self.pos_start, other.pos_end, "division by zero", self.context)
         return Number(left.value / right.value), None
+    def divint(self, other):
+        left, right, error = self.number_both(other)
+        if error: return None, error
+        if right.value == 0: return None, RTError(self.pos_start, other.pos_end, "division by zero", self.context)
+        return Number(left.value // right.value), None
     def pow(self, other):
         left, right, error = self.number_both(other)
         if error: return None, error
@@ -1614,33 +1624,6 @@ class BuiltInFunction(BaseFunction):
     def execute_time(self, exec_ctxs):
         return RTResult().success(Number(time()))
     execute_time.arg_names = []
-    def execute_floor(self, exec_ctx):
-        value = exec_ctx.vars.get("math_value")
-        if isinstance(value, Number):
-            return RTResult().success(Number(floor(value.value)))
-        return RTResult().failure(RTError(
-            self.pos_start, self.pos_end,
-            "argument has to be a number", exec_ctx
-        ))
-    execute_floor.arg_names = ["math_value"]
-    def execute_ceil(self, exec_ctx):
-        value = exec_ctx.vars.get("math_value")
-        if isinstance(value, Number):
-            return RTResult().success(Number(ceil(value.value)))
-        return RTResult().failure(RTError(
-            self.pos_start, self.pos_end,
-            "argument has to be a number", exec_ctx
-        ))
-    execute_ceil.arg_names = ["math_value"]
-    def execute_abs(self, exec_ctx):
-        value = exec_ctx.vars.get("math_value")
-        if isinstance(value, Number):
-            return RTResult().success(Number(fabs(value.value)))
-        return RTResult().failure(RTError(
-            self.pos_start, self.pos_end,
-            "argument has to be a number", exec_ctx
-        ))
-    execute_abs.arg_names = ["math_value"]
     def execute_exit(self, exec_ctx):
         value = exec_ctx.vars.get("exit_value")
         if isinstance(value, Number) or isinstance(value, String):
@@ -1672,9 +1655,6 @@ BuiltInFunction.len         = BuiltInFunction("len")
 BuiltInFunction.run         = BuiltInFunction("run")
 BuiltInFunction.sleep       = BuiltInFunction("sleep")
 BuiltInFunction.time        = BuiltInFunction("time")
-BuiltInFunction.floor       = BuiltInFunction("floor")
-BuiltInFunction.ceil        = BuiltInFunction("ceil")
-BuiltInFunction.abs         = BuiltInFunction("abs")
 BuiltInFunction.exit        = BuiltInFunction("exit")
 BuiltInFunction.error       = BuiltInFunction("error")
 
@@ -1762,6 +1742,8 @@ class Interpreter:
             result, error = left.mul(right)
         if node.op_tok.type == DIV: # div
             result, error = left.div(right)
+        if node.op_tok.type == DIVINT: # div
+            result, error = left.divint(right)
         if node.op_tok.type == POW: # pow
             result, error = left.pow(right)
         if node.op_tok.type == EE: # ee
@@ -1935,7 +1917,6 @@ class Interpreter:
         return res.success(fn)
 """RUN"""
 global_vars = Vars()
-global_vars.set("PI", Number.pi)
 global_vars.set("print", BuiltInFunction.print)
 global_vars.set("input", BuiltInFunction.input)
 global_vars.set("inputNum", BuiltInFunction.input_num)
@@ -1949,9 +1930,6 @@ global_vars.set("len", BuiltInFunction.len)
 global_vars.set("run", BuiltInFunction.run)
 global_vars.set("sleep", BuiltInFunction.sleep)
 global_vars.set("time", BuiltInFunction.time)
-global_vars.set("floor", BuiltInFunction.floor)
-global_vars.set("ceil", BuiltInFunction.ceil)
-global_vars.set("abs", BuiltInFunction.abs)
 global_vars.set("exit", BuiltInFunction.exit)
 global_vars.set("error", BuiltInFunction.error)
 def run(fn: str, text: str):
