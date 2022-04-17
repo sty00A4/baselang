@@ -20,3 +20,30 @@ func onlyNum(list)
     end
     return true
 end
+func onlyStr(list)
+    if not isList(list) then error("Type Error", "expected list got " + type(list))
+    var cond = true
+    forEvery e of list
+        var cond = isStr(e)
+        if not cond then return false
+    end
+    return true
+end
+func onlyBool(list)
+    if not isList(list) then error("Type Error", "expected list got " + type(list))
+    var cond = true
+    forEvery e of list
+        var cond = isBool(e)
+        if not cond then return false
+    end
+    return true
+end
+func onlyList(list)
+    if not isList(list) then error("Type Error", "expected list got " + type(list))
+    var cond = true
+    forEvery e of list
+        var cond = isList(e)
+        if not cond then return false
+    end
+    return true
+end
