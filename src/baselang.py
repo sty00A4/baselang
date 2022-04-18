@@ -137,7 +137,6 @@ KEYWORDS    = {
     "null":     "null",
     "true":     "true",
     "false":    "false",
-    "var_def":  "var",
     "bool_and": "and",
     "bool_or":  "or",
     "bool_not": "not",
@@ -159,7 +158,7 @@ KEYWORDS    = {
     "return":   "return",
     "use":      "use",
 }
-INVALIDSYNTAX_START = f"number, null, bool, string, identifier, '+', '-', '(', '[', '{KEYWORDS['var_def']}', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
+INVALIDSYNTAX_START = f"number, null, bool, string, identifier, '+', '-', '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
 INVALIDSYNTAX_ALL = f"number, null, bool, string, identifier, '+', '-', '*', '/', '**' '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}, '{KEYWORDS['bool_not']}'"
 class Token:
     def __init__(self, type_: str, value=None, pos_start=None, pos_end=None):
@@ -1043,13 +1042,13 @@ class Parser:
         return res.success(node)
     def expr(self):
         res = ParseResult()
-        if self.tok.matches(KEYWORD, KEYWORDS["var_def"]):
+        if self.tok.matches(KEYWORD, KEYWORDS["use"]):
             res.register_next()
             self.next()
-            if self.tok.type != IDENTIFIER: return res.failure(InvalidSyntaxError(
-                self.tok.pos_start, self.tok.pos_end,
-                "expected identifier"
-            ))
+            file_name = res.register(self.expr())
+            if res.error: return res
+            return res.success(UseNode(file_name))
+        if self.tok.type == IDENTIFIER:
             var_name = self.tok
             res.register_next()
             self.next()
@@ -1057,15 +1056,8 @@ class Parser:
                 res.register_next()
                 self.next()
                 expr = res.register(self.expr())
-                if res.error: return res
                 return res.success(VarAssignNode(var_name, expr))
-            return res.success(VarAssignNode(var_name))
-        if self.tok.matches(KEYWORD, KEYWORDS["use"]):
-            res.register_next()
-            self.next()
-            file_name = res.register(self.expr())
-            if res.error: return res
-            return res.success(UseNode(file_name))
+            self.reverse()
         if self.tok.matches(INC):
             res.register_next()
             self.next()
