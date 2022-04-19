@@ -120,6 +120,8 @@ EVALIN      = "EVALIN"
 EVALOUT     = "EVALOUT"
 LISTIN      = "LISTIN"
 LISTOUT     = "LISTOUT"
+TABLEIN     = "TABLEIN"
+TABLEOUT    = "TABLEOUT"
 EE          = "EE"
 NE          = "NE"
 LT          = "LT"
@@ -266,6 +268,12 @@ class Lexer:
             elif self.char == "]": # list out
                 tokens.append(Token(LISTOUT, pos_start=self.pos.copy()))
                 self.next()
+            elif self.char == "{": # list in
+                tokens.append(Token(TABLEIN, pos_start=self.pos.copy()))
+                self.next()
+            elif self.char == "}": # list out
+                tokens.append(Token(TABLEOUT, pos_start=self.pos.copy()))
+                self.next()
             elif self.char == ",":  # sep
                 tokens.append(Token(SEP, pos_start=self.pos.copy()))
                 self.next()
@@ -391,7 +399,12 @@ class StringNode:
 class ListNode:
     def __init__(self, element_nodes, pos_start, pos_end):
         self.element_nodes = element_nodes
-
+        self.pos_start = pos_start
+        self.pos_end = pos_end
+class TableNode:
+    def __init__(self, element_nodes, key_nodes, pos_start, pos_end):
+        self.element_nodes = element_nodes
+        self.key_nodes = key_nodes
         self.pos_start = pos_start
         self.pos_end = pos_end
 class VarAccessNode:
@@ -915,6 +928,57 @@ class Parser:
             res.register_next()
             self.next()
         return res.success(ListNode(element_nodes, pos_start, self.tok.pos_end.copy()))
+    def table_expr(self):
+        res = ParseResult()
+        key_nodes = []
+        element_nodes = []
+        pos_start = self.tok.pos_start.copy()
+        if self.tok.type != TABLEIN:
+            return res.failure(InvalidSyntaxError(
+                self.tok.pos_start, self.tok.pos_end,
+                "expected '{'"
+            ))
+        res.register_next()
+        self.next()
+        if self.tok.type == TABLEOUT:
+            res.register_next()
+            self.next()
+        else:
+            key = res.register(self.expr())
+            if res.error: return res
+            if self.tok.type != REP:
+                return res.failure(InvalidSyntaxError(
+                    self.tok.pos_start, self.tok.pos_end,
+                    f"expected ':'"
+                ))
+            key_nodes.append(key)
+            res.register_next()
+            self.next()
+            element_nodes.append(res.register(self.expr()))
+            if res.error: return res
+            while self.tok.type == SEP:
+                res.register_next()
+                self.next()
+                key = res.register(self.expr())
+                if res.error: return res
+                if self.tok.type != REP:
+                    return res.failure(InvalidSyntaxError(
+                        self.tok.pos_start, self.tok.pos_end,
+                        f"expected ':'"
+                    ))
+                key_nodes.append(key)
+                res.register_next()
+                self.next()
+                element_nodes.append(res.register(self.expr()))
+                if res.error: return res
+            if self.tok.type != TABLEOUT:
+                return res.failure(InvalidSyntaxError(
+                    self.tok.pos_start, self.tok.pos_end,
+                    "expected ',', '}'"
+                ))
+            res.register_next()
+            self.next()
+        return res.success(TableNode(element_nodes, key_nodes, pos_start, self.tok.pos_end.copy()))
     def atom(self):
         res = ParseResult()
         tok = self.tok
@@ -948,6 +1012,10 @@ class Parser:
             list_expr = res.register(self.list_expr())
             if res.error: return res
             return res.success(list_expr)
+        elif tok.type == TABLEIN: # factor table in
+            table_expr = res.register(self.table_expr())
+            if res.error: return res
+            return res.success(table_expr)
         elif tok.type == STRING:
             res.register_next()
             self.next()
@@ -1266,8 +1334,8 @@ class Value:
         if error: return None, error
         return Number(left.value ** right.value), None
     def index(self, other):
-        right, error = other.as_number()
         if isinstance(self, List):
+            right, error = other.as_number()
             try:
                 return self.elements[right.value], None
             except IndexError:
@@ -1276,12 +1344,22 @@ class Value:
                     f"index out of range ({right.value} is over {len(self.elements) - 1})", self.context
                 )
         if isinstance(self, String):
+            right, error = other.as_number()
             try:
                 return String(self.value[right.value]), None
             except IndexError:
                 return None, RTError(
                     other.pos_start, other.pos_end,
                     f"index out of range ({right.value} is over {len(self.value) - 1})", self.context
+                )
+        if isinstance(self, Table):
+            right, error = other.as_string()
+            try:
+                return self.table[right.value], None
+            except KeyError:
+                return None, RTError(
+                    other.pos_start, other.pos_end,
+                    f"key not found", self.context
                 )
         return None, self.illagel_operation(other)
     def neg(self):
@@ -1313,6 +1391,8 @@ class Value:
             else:
                 return Bool(self.value in values), None
         if isinstance(other, String) and isinstance(self, String):
+            return Bool(self.value in other.value), None
+        if isinstance(other, Table) and isinstance(self, String):
             return Bool(self.value in other.value), None
         return None, self.illagel_operation(other)
     def ee(self, other):
@@ -1447,6 +1527,17 @@ class List(Value):
         return copy
     def __repr__(self):
         return f"[{', '.join([repr(x) for x in self.elements])}]"
+class Table(Value):
+    def __init__(self, table: dict):
+        super().__init__()
+        self.table = table
+    def copy(self):
+        copy = Table(self.table)
+        copy.set_context(self.context)
+        copy.set_pos(self.pos_start, self.pos_end)
+        return copy
+    def __repr__(self):
+        return "{" + f"{', '.join([f'{repr(x)}: {repr(self.table[x])}' for x in self.table])}" + "}"
 class BaseFunction(Value):
     def __init__(self, name):
         super().__init__()
@@ -1631,6 +1722,20 @@ class BuiltInFunction(BaseFunction):
             "argument has to be a string", exec_ctx
         ))
     execute_error.arg_names = ["error_head", "error_value"]
+    def execute_set(self, exec_ctx):
+        table = exec_ctx.vars.get("set_table")
+        if not isinstance(table, Table): return RTResult().failure(RTError(
+            table.pos_start, table.pos_end, "expected table", exec_ctx
+        ))
+        key = exec_ctx.vars.get("set_key")
+        if not isinstance(key, String): return RTResult().failure(RTError(
+            key.pos_start, key.pos_end, "expected string", exec_ctx
+        ))
+        value = exec_ctx.vars.get("set_value")
+        table.table[key.value] = value
+        exec_ctx.vars.set("set_table", table)
+        return RTResult().success(Table(table.table))
+    execute_set.arg_names = ["set_table", "set_key", "set_value"]
 Number.pi                   = Number(pi)
 String.empty                = String("")
 List.empty                  = List([])
@@ -1649,6 +1754,7 @@ BuiltInFunction.sleep       = BuiltInFunction("sleep")
 BuiltInFunction.time        = BuiltInFunction("time")
 BuiltInFunction.exit        = BuiltInFunction("exit")
 BuiltInFunction.error       = BuiltInFunction("error")
+BuiltInFunction.set         = BuiltInFunction("set")
 
 """CONTEXT"""
 class Context:
@@ -1691,6 +1797,19 @@ class Interpreter:
             elements.append(res.register(self.visit(element_node, context)))
             if res.should_return(): return res
         return res.success(List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
+    def visit_TableNode(self, node: TableNode, context: Context):
+        res = RTResult()
+        table = {}
+        for i in range(len(node.element_nodes)):
+            key = res.register(self.visit(node.key_nodes[i], context))
+            if res.should_return(): return res
+            if not isinstance(key, String): return res.failure(RTError(
+                key.pos_start, key.pos_end, "expected a string", context
+            ))
+            value = res.register(self.visit(node.element_nodes[i], context))
+            if res.should_return(): return res
+            table[key.value] = value
+        return res.success(Table(table).set_context(context).set_pos(node.pos_start, node.pos_end))
     def visit_NullNode(self, node: NullNode, context: Context):
         return RTResult().success(Null().set_context(context).set_pos(node.pos_start, node.pos_end))
     def visit_BoolNode(self, node: NullNode, context: Context):
@@ -1934,6 +2053,7 @@ global_vars.set("sleep", BuiltInFunction.sleep)
 global_vars.set("time", BuiltInFunction.time)
 global_vars.set("exit", BuiltInFunction.exit)
 global_vars.set("error", BuiltInFunction.error)
+global_vars.set("set", BuiltInFunction.set)
 def run(fn: str, text: str):
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
