@@ -160,8 +160,8 @@ KEYWORDS    = {
     "return":   "return",
     "use":      "use",
 }
-INVALIDSYNTAX_START = f"number, null, bool, string, identifier, '+', '-', '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
-INVALIDSYNTAX_ALL = f"number, null, bool, string, identifier, '+', '-', '*', '/', '**' '(', '[', '{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}, '{KEYWORDS['bool_not']}'"
+INVALIDSYNTAX_START = "number, null, bool, string, identifier, '+', '-', '(', '[', '{', " + f"'{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}', '{KEYWORDS['bool_not']}'"
+INVALIDSYNTAX_ALL = "number, null, bool, string, identifier, '+', '-', '*', '/', '**' '(', '[', '{', " + f"'{KEYWORDS['if']}', '{KEYWORDS['for']}', '{KEYWORDS['while']}', '{KEYWORDS['function']}, '{KEYWORDS['bool_not']}'"
 class Token:
     def __init__(self, type_: str, value=None, pos_start=None, pos_end=None):
         self.type = type_
@@ -1425,6 +1425,14 @@ class Value:
         return None, self.illagel_cast("string")
     def as_bool(self):
         return None, self.illagel_cast("bool")
+    def to_num(self):
+        return None, self.illagel_cast("number")
+    def to_bool(self):
+        return None, self.illagel_cast("bool")
+    def to_str(self):
+        return None, self.illagel_cast("string")
+    def to_list(self):
+        return None, self.illagel_cast("list")
     def is_true(self):
         return False
     def illagel_cast(self, cast_to):
@@ -1454,6 +1462,12 @@ class Null(Value):
         return Bool(False), None
     def as_string(self):
         return String("null"), None
+    def to_num(self):
+        return Number(0), None
+    def to_bool(self):
+        return Bool(False), None
+    def to_str(self):
+        return String("null"), None
     def is_true(self):
         return False
     def __repr__(self):
@@ -1476,6 +1490,12 @@ class Number(Value):
         return String(str(self.value)), None
     def as_bool(self):
         return Bool(self.value != 0), None
+    def to_num(self):
+        return Number(self.value), None
+    def to_bool(self):
+        return Bool(self.value != 0), None
+    def to_str(self):
+        return String(str(self.value)), None
     def is_true(self):
         return self.value != 0
     def __repr__(self):
@@ -1497,6 +1517,12 @@ class Bool(Value):
         return String(str(self.value).lower()), None
     def as_bool(self):
         return Bool(self.value), None
+    def to_num(self):
+        return Number(1 if self.value else 0), None
+    def to_bool(self):
+        return Bool(self.value), None
+    def to_str(self):
+        return String(str(self.value).lower()), None
     def is_true(self):
         return self.value
 class String(Value):
@@ -1510,6 +1536,24 @@ class String(Value):
         return copy
     def as_string(self):
         return self.copy(), None
+    def to_num(self):
+        try:
+            return Number(int(self.value)), None
+        except ValueError:
+            try:
+                return Number(float(self.value)), None
+            except ValueError:
+                return None, self.illagel_cast("number")
+    def to_bool(self):
+        if self.value == "true":
+            return Bool(True), None
+        if self.value == "false":
+            return Bool(False), None
+        return None, self.illagel_cast("bool")
+    def to_str(self):
+        return String(self.value), None
+    def to_list(self):
+        return List([String(x) for x in list(self.value)]), None
     def __str__(self):
         return self.value
     def is_true(self):
@@ -1525,6 +1569,8 @@ class List(Value):
         copy.set_context(self.context)
         copy.set_pos(self.pos_start, self.pos_end)
         return copy
+    def to_list(self):
+        return List(self.elements), None
     def __repr__(self):
         return f"[{', '.join([repr(x) for x in self.elements])}]"
 class Table(Value):
@@ -1658,6 +1704,30 @@ class BuiltInFunction(BaseFunction):
     def execute_is_func(self, exec_ctx):
         return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), BaseFunction)))
     execute_is_func.arg_names = ["is_value"]
+    def execute_to_num(self, exec_ctx):
+        value = exec_ctx.vars.get("to_value")
+        value, error = value.to_num()
+        if error: return RTResult().failure(error)
+        return RTResult().success(value)
+    execute_to_num.arg_names = ["to_value"]
+    def execute_to_bool(self, exec_ctx):
+        value = exec_ctx.vars.get("to_value")
+        value, error = value.to_bool()
+        if error: return RTResult().failure(error)
+        return RTResult().success(value)
+    execute_to_bool.arg_names = ["to_value"]
+    def execute_to_str(self, exec_ctx):
+        value = exec_ctx.vars.get("to_value")
+        value, error = value.to_str()
+        if error: return RTResult().failure(error)
+        return RTResult().success(value)
+    execute_to_str.arg_names = ["to_value"]
+    def execute_to_list(self, exec_ctx):
+        value = exec_ctx.vars.get("to_value")
+        value, error = value.to_list()
+        if error: return RTResult().failure(error)
+        return RTResult().success(value)
+    execute_to_list.arg_names = ["to_value"]
     def execute_type(self, exec_ctx):
         value = exec_ctx.vars.get("type_value")
         return RTResult().success(String(type(value).__name__.lower()))
@@ -1745,6 +1815,10 @@ BuiltInFunction.input_num   = BuiltInFunction("input_num")
 BuiltInFunction.is_num      = BuiltInFunction("is_num")
 BuiltInFunction.is_bool     = BuiltInFunction("is_bool")
 BuiltInFunction.is_str      = BuiltInFunction("is_str")
+BuiltInFunction.to_num      = BuiltInFunction("to_num")
+BuiltInFunction.to_bool     = BuiltInFunction("to_bool")
+BuiltInFunction.to_str      = BuiltInFunction("to_str")
+BuiltInFunction.to_list     = BuiltInFunction("to_list")
 BuiltInFunction.is_list     = BuiltInFunction("is_list")
 BuiltInFunction.is_func     = BuiltInFunction("is_func")
 BuiltInFunction.type        = BuiltInFunction("type")
@@ -2045,6 +2119,10 @@ global_vars.set("isNum", BuiltInFunction.is_num)
 global_vars.set("isBool", BuiltInFunction.is_bool)
 global_vars.set("isStr", BuiltInFunction.is_str)
 global_vars.set("isList", BuiltInFunction.is_list)
+global_vars.set("toNum", BuiltInFunction.to_num)
+global_vars.set("toBool", BuiltInFunction.to_bool)
+global_vars.set("toStr", BuiltInFunction.to_str)
+global_vars.set("toList", BuiltInFunction.to_list)
 global_vars.set("isFunc", BuiltInFunction.is_func)
 global_vars.set("type", BuiltInFunction.type)
 global_vars.set("len", BuiltInFunction.len)
