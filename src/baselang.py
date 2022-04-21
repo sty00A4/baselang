@@ -1471,7 +1471,7 @@ class Null(Value):
     def is_true(self):
         return False
     def __repr__(self):
-        return "null"
+        return KEYWORDS["null"]
 class Number(Value):
     def __init__(self, value):
         super().__init__()
@@ -1505,7 +1505,7 @@ class Bool(Value):
         super().__init__()
         self.value = value
     def __repr__(self):
-        return str(self.value).lower()
+        return KEYWORDS["true"] if self.value else KEYWORDS["false"]
     def copy(self):
         copy = Bool(self.value)
         copy.set_context(self.context)
