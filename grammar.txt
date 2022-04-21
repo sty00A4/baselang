@@ -6,10 +6,10 @@ statement       expr
                 break
 
 expr            var IDENTIFIER EQ expr
-                comp-expr ((and|or|nand|xor) comp-expr)*
+                comp-expr ((and|or) comp-expr)*
 
 comp-expr       not comp-expr
-                arith-expr ((EE|NE|LT|GT|LTE|GTE) arith-expr)*
+                arith-expr ((EE|NE|LT|GT|LTE|GTE|IN) arith-expr)*
 
 arith-expr      term ((PLUS|MINUS) term)*
 
@@ -22,7 +22,7 @@ power           call (POW factor)*
 
 call            atom (EVALIN (expr (SEP expr)*)? EVALOUT)?
 
-atom            INT|FLOAT|NULL|STRING|INDENTIFIER
+atom            INT|FLOAT|NULL|STRING|IDENTIFIER
                 EVALIN expr EVALOUT
                 list-expr
                 if-expr
@@ -40,14 +40,14 @@ elif-expr       elif expr then
 else-expr       else
                 statement | (NL statements end)
 
-for-expr        for INDENTIFIER EQ expr to expr
+for-expr        for IDENTIFIER EQ expr to expr
                 (step expr)? do
                 statement | (NL statements end)
 
 while-expr      while expr do
                 statement | (NL statements end)
 
-func-def        func INDENTIFIER?
-                EVALIN (IDENTIFIER (SEP INDENTIFIER)*)? EVALOUT
+func-def        func IDENTIFIER?
+                EVALIN (IDENTIFIER (SEP IDENTIFIER)*)? EVALOUT
                 REP
                 expr | (NL statements end)
