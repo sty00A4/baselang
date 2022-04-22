@@ -395,7 +395,7 @@ class StringNode:
         self.pos_start  = tok.pos_start.copy()
         self.pos_end    = tok.pos_end.copy()
     def __repr__(self):
-        return f"(string \"{self.tok}\")"
+        return f"(string \"{self.tok.value}\")"
 class ListNode:
     def __init__(self, element_nodes, pos_start, pos_end):
         self.element_nodes = element_nodes
@@ -1308,6 +1308,10 @@ class Value:
             elements = self.elements
             elements.pop(right.value)
             return List(elements), None
+        if isinstance(self, Table) and isinstance(other, String):
+            table = self.table
+            del table[other.value]
+            return Table(table), None
         left, right, error = self.number_both(other)
         if error: return None, error
         return Number(left.value - right.value), None
@@ -1316,6 +1320,11 @@ class Value:
             elements = self.elements
             elements.extend(other.elements)
             return List(elements), None
+        if isinstance(self, Table) and isinstance(other, Table):
+            table = self.table
+            for k in other.table:
+                table[k] = other.table[k]
+            return Table(table), None
         left, right, error = self.number_both(other)
         if error: return None, error
         return Number(left.value * right.value), None
@@ -1393,7 +1402,7 @@ class Value:
         if isinstance(other, String) and isinstance(self, String):
             return Bool(self.value in other.value), None
         if isinstance(other, Table) and isinstance(self, String):
-            return Bool(self.value in other.value), None
+            return Bool(self.value in other.table), None
         return None, self.illagel_operation(other)
     def ee(self, other):
         left, right, error = self.comp_both(other)
@@ -1701,6 +1710,9 @@ class BuiltInFunction(BaseFunction):
     def execute_is_list(self, exec_ctx):
         return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), List)))
     execute_is_list.arg_names = ["is_value"]
+    def execute_is_table(self, exec_ctx):
+        return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), Table)))
+    execute_is_table.arg_names = ["is_value"]
     def execute_is_func(self, exec_ctx):
         return RTResult().success(Bool(isinstance(exec_ctx.vars.get("is_value"), BaseFunction)))
     execute_is_func.arg_names = ["is_value"]
@@ -1736,6 +1748,8 @@ class BuiltInFunction(BaseFunction):
         value = exec_ctx.vars.get("len_value")
         if isinstance(value, List):
             return RTResult().success(Number(len(value.elements)))
+        if isinstance(value, Table):
+            return RTResult().success(Number(len(value.table)))
         if isinstance(value, String):
             return RTResult().success(Number(len(value.value)))
         return RTResult().failure(RTError(self.pos_start, self.pos_end, "can only get length of list or string", exec_ctx))
@@ -1809,18 +1823,20 @@ class BuiltInFunction(BaseFunction):
 Number.pi                   = Number(pi)
 String.empty                = String("")
 List.empty                  = List([])
+Table.empty                 = Table({})
 BuiltInFunction.print       = BuiltInFunction("print")
 BuiltInFunction.input       = BuiltInFunction("input")
 BuiltInFunction.input_num   = BuiltInFunction("input_num")
 BuiltInFunction.is_num      = BuiltInFunction("is_num")
 BuiltInFunction.is_bool     = BuiltInFunction("is_bool")
 BuiltInFunction.is_str      = BuiltInFunction("is_str")
+BuiltInFunction.is_list     = BuiltInFunction("is_list")
+BuiltInFunction.is_table    = BuiltInFunction("is_table")
+BuiltInFunction.is_func     = BuiltInFunction("is_func")
 BuiltInFunction.to_num      = BuiltInFunction("to_num")
 BuiltInFunction.to_bool     = BuiltInFunction("to_bool")
 BuiltInFunction.to_str      = BuiltInFunction("to_str")
 BuiltInFunction.to_list     = BuiltInFunction("to_list")
-BuiltInFunction.is_list     = BuiltInFunction("is_list")
-BuiltInFunction.is_func     = BuiltInFunction("is_func")
 BuiltInFunction.type        = BuiltInFunction("type")
 BuiltInFunction.len         = BuiltInFunction("len")
 BuiltInFunction.run         = BuiltInFunction("run")
@@ -2119,11 +2135,13 @@ global_vars.set("isNum", BuiltInFunction.is_num)
 global_vars.set("isBool", BuiltInFunction.is_bool)
 global_vars.set("isStr", BuiltInFunction.is_str)
 global_vars.set("isList", BuiltInFunction.is_list)
+global_vars.set("isList", BuiltInFunction.is_list)
+global_vars.set("isTable", BuiltInFunction.is_table)
+global_vars.set("isFunc", BuiltInFunction.is_func)
 global_vars.set("toNum", BuiltInFunction.to_num)
 global_vars.set("toBool", BuiltInFunction.to_bool)
 global_vars.set("toStr", BuiltInFunction.to_str)
 global_vars.set("toList", BuiltInFunction.to_list)
-global_vars.set("isFunc", BuiltInFunction.is_func)
 global_vars.set("type", BuiltInFunction.type)
 global_vars.set("len", BuiltInFunction.len)
 global_vars.set("run", BuiltInFunction.run)
