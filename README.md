@@ -9,7 +9,7 @@ compressed in one file
 #### SYNTAX
 
 The grammar has some Lua-inspired syntax with the keywords
-`then`, `do` and `end`, but also has statements like `var a = 1` which would assign the number `1` to the variable `a`.
+`then`, `do` and `end`, but also has statements like `a = 1` which would assign the number `1` to the variable `a`.
 
 The whole grammar is explained in the `grammar.txt` file, though it might a bit hard to understand at first
 
