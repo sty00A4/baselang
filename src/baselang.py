@@ -1823,6 +1823,17 @@ class BuiltInFunction(BaseFunction):
             table.pos_start, table.pos_end, "expected table or object", exec_ctx
         ))
     execute_set.arg_names = ["set_table", "set_key", "set_value"]
+    def execute_range(self, exec_ctx):
+        start = exec_ctx.vars.get("range_start")
+        if not isinstance(start, Number):
+            return RTResult().failure(RTError(start.pos_start, start.pos_end, "expected number", exec_ctx))
+        end = exec_ctx.vars.get("range_end")
+        if not isinstance(end, Number):
+            return RTResult().failure(RTError(end.pos_start, end.pos_end, "expected number", exec_ctx))
+        range_ = range(start.value, end.value)
+        l = [Number(x) for x in range_]
+        return RTResult().success(List(l))
+    execute_range.arg_names = ["range_start", "range_end"]
 Number.pi                   = Number(pi)
 String.empty                = String("")
 List.empty                  = List([])
@@ -1848,6 +1859,7 @@ BuiltInFunction.time        = BuiltInFunction("time")
 BuiltInFunction.exit        = BuiltInFunction("exit")
 BuiltInFunction.error       = BuiltInFunction("error")
 BuiltInFunction.set         = BuiltInFunction("set")
+BuiltInFunction.range       = BuiltInFunction("range")
 
 """CONTEXT"""
 class Context:
@@ -2153,6 +2165,7 @@ global_vars.set("time", BuiltInFunction.time)
 global_vars.set("exit", BuiltInFunction.exit)
 global_vars.set("error", BuiltInFunction.error)
 global_vars.set("set", BuiltInFunction.set)
+global_vars.set("range", BuiltInFunction.range)
 def run(fn: str, text: str):
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
