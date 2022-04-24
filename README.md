@@ -23,7 +23,7 @@ The whole grammar is explained in the `grammar.txt` file, though it might a bit 
 
 VARIABLE ASSIGNMENT
 
-`[name] = [expression]` >>>
+`[identifier] = [expression]` >>>
 returns `[value]` from `[expression]`.
 
 IF STATEMENT
