@@ -1268,12 +1268,12 @@ class Value:
         return self
     def comp_both(self, other):
         error = None
-        if isinstance(self, (Number, Bool, String)):
+        if isinstance(self, (Number, Bool, String, Null)):
             left = self
         else:
             left, error = self.as_number()
             if error: return None, None, error
-        if isinstance(other, (Number, Bool, String)):
+        if isinstance(other, (Number, Bool, String, Null)):
             right = other
         else:
             right, error = other.as_number()
@@ -1464,6 +1464,9 @@ class Value:
     def __repr__(self):
         return "?"
 class Null(Value):
+    def __init__(self):
+        super().__init__()
+        self.value = None
     def copy(self):
         copy = Null()
         copy.set_context(self.context)
