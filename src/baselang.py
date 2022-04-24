@@ -45,6 +45,8 @@ class Position:
         return self
     def copy(self):
         return Position(self.idx, self.ln, self.col, self.fn, self.ftxt)
+    def __repr__(self):
+        return f"<pos: idx {self.idx}, ln {self.ln}, col {self.col}, fn '{self.fn}'>"
 
 """ERROR"""
 class Error:
@@ -578,7 +580,7 @@ class Parser:
         if not self.tok.matches(KEYWORD, KEYWORDS["function"]):
             return res.failure(InvalidSyntaxError(
                 self.tok.pos_start, self.tok.pos_end,
-                f"expected '{KEYWORDS['func']}'"
+                f"expected '{KEYWORDS['function']}'"
             ))
         res.register_next()
         self.next()
@@ -1808,17 +1810,18 @@ class BuiltInFunction(BaseFunction):
     execute_error.arg_names = ["error_head", "error_value"]
     def execute_set(self, exec_ctx):
         table = exec_ctx.vars.get("set_table")
-        if not isinstance(table, Table): return RTResult().failure(RTError(
-            table.pos_start, table.pos_end, "expected table", exec_ctx
+        if isinstance(table, Table):
+            key = exec_ctx.vars.get("set_key")
+            if not isinstance(key, String): return RTResult().failure(RTError(
+                key.pos_start, key.pos_end, "expected string", exec_ctx
+            ))
+            value = exec_ctx.vars.get("set_value")
+            table.table[key.value] = value
+            exec_ctx.vars.set("set_table", table)
+            return RTResult().success(Table(table.table))
+        return RTResult().failure(RTError(
+            table.pos_start, table.pos_end, "expected table or object", exec_ctx
         ))
-        key = exec_ctx.vars.get("set_key")
-        if not isinstance(key, String): return RTResult().failure(RTError(
-            key.pos_start, key.pos_end, "expected string", exec_ctx
-        ))
-        value = exec_ctx.vars.get("set_value")
-        table.table[key.value] = value
-        exec_ctx.vars.set("set_table", table)
-        return RTResult().success(Table(table.table))
     execute_set.arg_names = ["set_table", "set_key", "set_value"]
 Number.pi                   = Number(pi)
 String.empty                = String("")
