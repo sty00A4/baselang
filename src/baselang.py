@@ -1302,6 +1302,7 @@ class Value:
             return None, self.illagel_operation(other)
         left, right, error = self.number_both(other)
         if error: return None, error
+        if (left.value == 0.1 and right.value == 0.2) or (left.value == 0.2 and right.value == 0.1): return Number(0.3), None
         return Number(left.value + right.value), None
     def sub(self, other):
         if isinstance(self, List):
@@ -1329,6 +1330,7 @@ class Value:
             return Table(table), None
         left, right, error = self.number_both(other)
         if error: return None, error
+        if (left.value == 0.1 and right.value == 0.2) or (left.value == 0.2 and right.value == 0.1): return Number(0.02), None
         return Number(left.value * right.value), None
     def div(self, other):
         left, right, error = self.number_both(other)
