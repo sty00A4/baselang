@@ -4,6 +4,7 @@ from string import digits as DIGITS
 from sys import argv
 from time import sleep, time
 from math import pi
+from random import random
 LETTERS += "_"
 VAR_CHARS = LETTERS + DIGITS
 def string_with_arrows(text, pos_start, pos_end):
@@ -1839,6 +1840,9 @@ class BuiltInFunction(BaseFunction):
         l = [Number(x) for x in range_]
         return RTResult().success(List(l))
     execute_range.arg_names = ["range_start", "range_end"]
+    def execute_rand(self, exec_ctx):
+        return RTResult().success(Number(random()))
+    execute_rand.arg_names = []
 Number.pi                   = Number(pi)
 String.empty                = String("")
 List.empty                  = List([])
@@ -1865,6 +1869,7 @@ BuiltInFunction.exit        = BuiltInFunction("exit")
 BuiltInFunction.error       = BuiltInFunction("error")
 BuiltInFunction.set         = BuiltInFunction("set")
 BuiltInFunction.range       = BuiltInFunction("range")
+BuiltInFunction.rand        = BuiltInFunction("rand")
 
 """CONTEXT"""
 class Context:
@@ -2171,6 +2176,7 @@ global_vars.set("exit", BuiltInFunction.exit)
 global_vars.set("error", BuiltInFunction.error)
 global_vars.set("set", BuiltInFunction.set)
 global_vars.set("range", BuiltInFunction.range)
+global_vars.set("rand", BuiltInFunction.rand)
 def run(fn: str, text: str):
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
@@ -2189,8 +2195,8 @@ if len(argv) > 1:
     try:
         with open(fn, "r") as f:
             script = f.read()
+        _, error = run(fn, script)
+        if error:
+            print(f"failed to finish running script '{fn}'\n{error.as_string()}")
     except Exception as e:
         print(f"failed to load script '{fn}'\n{e}")
-    _, error = run(fn, script)
-    if error:
-        print(f"failed to finish running script '{fn}'\n{error.as_string()}")
