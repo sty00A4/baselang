@@ -20,6 +20,7 @@ The whole grammar is explained in the `grammar.txt` file, though it might a bit 
 | boolean | `true / false`            |
 | string  | `"text..."`               |
 | list    | `[4, false, "text", ...]` |
+| table   | `{"a": 1, "b": true}`     |
 
 VARIABLE ASSIGNMENT
 
